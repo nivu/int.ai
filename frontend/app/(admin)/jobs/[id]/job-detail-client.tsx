@@ -125,6 +125,7 @@ export default function JobDetailClient({
           education_requirements: data.education_requirements,
           scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
+          interview_template_id: data.interview_template_id || null,
           status: isPublish ? "published" : post.status,
           published_at:
             isPublish && !post.published_at

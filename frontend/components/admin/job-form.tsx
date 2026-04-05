@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, type KeyboardEvent } from "react";
+import { useState, useCallback, useEffect, type KeyboardEvent } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,6 +45,7 @@ export interface HiringPostFormData {
     culture_match: number;
   };
   screening_threshold: number;
+  interview_template_id: string;
   // publish settings
   publish_now: boolean;
   scheduled_publish_at: string;
@@ -76,6 +78,7 @@ const defaultFormData: HiringPostFormData = {
     culture_match: 0.25,
   },
   screening_threshold: 70,
+  interview_template_id: "",
   publish_now: true,
   scheduled_publish_at: "",
   closes_at: "",
@@ -96,6 +99,19 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
   });
 
   const [skillInput, setSkillInput] = useState("");
+  const [templates, setTemplates] = useState<{ id: string; name: string; max_questions: number; max_duration_minutes: number }[]>([]);
+
+  useEffect(() => {
+    async function fetchTemplates() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("interview_templates")
+        .select("id, name, max_questions, max_duration_minutes")
+        .order("name");
+      if (data) setTemplates(data);
+    }
+    fetchTemplates();
+  }, []);
 
   // ---- helpers ----
 
@@ -373,6 +389,32 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
             />
             <p className="text-xs text-muted-foreground">
               Candidates scoring below this threshold will be auto-rejected.
+            </p>
+          </div>
+
+          {/* Interview Template */}
+          <div className="space-y-1.5">
+            <Label htmlFor="interview_template">Interview Template</Label>
+            <Select
+              value={form.interview_template_id || "none"}
+              onValueChange={(value) =>
+                update("interview_template_id", value === "none" ? "" : value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a template" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No template</SelectItem>
+                {templates.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name} ({t.max_questions}Q / {t.max_duration_minutes}min)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Candidates who pass screening will be auto-invited to an AI interview using this template.
             </p>
           </div>
         </CardContent>

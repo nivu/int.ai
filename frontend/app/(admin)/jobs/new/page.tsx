@@ -51,6 +51,7 @@ export default function NewJobPage() {
           education_requirements: data.education_requirements,
           scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
+          interview_template_id: data.interview_template_id || null,
           status: isPublish ? "published" : "draft",
           published_at: isPublish ? now : null,
           closes_at: data.closes_at
