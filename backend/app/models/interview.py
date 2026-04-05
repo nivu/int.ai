@@ -8,15 +8,12 @@ from pydantic import BaseModel
 
 
 class CreateRoomRequest(BaseModel):
-    application_id: str
-    template_id: str
+    session_id: str
 
 
 class CreateRoomResponse(BaseModel):
-    session_id: str
-    room_name: str
-    candidate_token: str
-    expires_at: datetime
+    token: str
+    server_url: str
 
 
 class ReconnectRequest(BaseModel):

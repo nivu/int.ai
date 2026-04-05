@@ -75,6 +75,50 @@ async def _create_livekit_room(room_name: str) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+async def start_session_from_existing(session_id: str) -> dict[str, Any]:
+    """Activate a pre-created interview session.
+
+    1. Fetches the existing session record.
+    2. Creates a LiveKit room.
+    3. Generates a candidate access token.
+    4. Updates the session status to 'in_progress'.
+
+    Returns
+    -------
+    dict
+        ``{session_id, room_name, candidate_token, expires_at}``
+    """
+    session = get_record("interview_sessions", session_id)
+    room_name = f"interview-{session_id}"
+
+    # Create the LiveKit room
+    await _create_livekit_room(room_name)
+
+    # Generate candidate token
+    identity = f"candidate-{session_id}"
+    candidate_token, expires_at = _generate_candidate_token(room_name, identity)
+
+    # Update session to in_progress
+    update_record("interview_sessions", session_id, {
+        "livekit_room_name": room_name,
+        "status": "in_progress",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info(
+        "Interview session activated: session_id=%s room=%s",
+        session_id,
+        room_name,
+    )
+
+    return {
+        "session_id": session_id,
+        "room_name": room_name,
+        "candidate_token": candidate_token,
+        "expires_at": expires_at,
+    }
+
+
 async def start_session(application_id: str, template_id: str) -> dict[str, Any]:
     """Create a new interview session.
 

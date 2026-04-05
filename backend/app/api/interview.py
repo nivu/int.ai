@@ -14,7 +14,8 @@ from app.models.interview import (
     ReconnectRequest,
     ReconnectResponse,
 )
-from app.interview.session_manager import end_session, reconnect_session, start_session
+from app.config import settings
+from app.interview.session_manager import end_session, reconnect_session, start_session_from_existing
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -24,18 +25,16 @@ router = APIRouter(prefix="/interview", tags=["interview"])
 
 @router.post("/create-room", response_model=CreateRoomResponse, status_code=201)
 async def create_room(body: CreateRoomRequest) -> CreateRoomResponse:
-    """Create a new interview room and return connection details."""
+    """Create a LiveKit room for an existing interview session."""
     try:
-        result = await start_session(body.application_id, body.template_id)
+        result = await start_session_from_existing(body.session_id)
     except Exception:
-        logger.exception("Failed to create interview room")
+        logger.exception("Failed to create interview room for session %s", body.session_id)
         raise HTTPException(status_code=500, detail="Failed to create interview room")
 
     return CreateRoomResponse(
-        session_id=result["session_id"],
-        room_name=result["room_name"],
-        candidate_token=result["candidate_token"],
-        expires_at=result["expires_at"],
+        token=result["candidate_token"],
+        server_url=settings.LIVEKIT_URL,
     )
 
 
