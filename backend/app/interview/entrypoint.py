@@ -7,10 +7,12 @@ Run as:
 
 from __future__ import annotations
 
+import json
 import logging
 
 from livekit.agents import (
     AgentSession,
+    AgentStateChangedEvent,
     JobContext,
     JobProcess,
     WorkerOptions,
@@ -130,6 +132,45 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     await session.start(agent=agent, room=ctx.room)
+
+    # Track question count based on agent speaking turns
+    # Start at -1 to skip the initial greeting turn
+    question_count = -1
+    was_speaking = False
+
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(event: AgentStateChangedEvent) -> None:
+        nonlocal question_count, was_speaking
+
+        if event.new_state == "speaking":
+            was_speaking = True
+        elif was_speaking and event.new_state == "listening":
+            # Agent just finished speaking → a question was delivered
+            was_speaking = False
+            question_count += 1
+
+            # Only count actual questions (skip greeting)
+            if question_count <= 0:
+                return
+
+            # Send progress update to frontend via data channel
+            msg = json.dumps({
+                "type": "question_progress",
+                "current": question_count,
+            }).encode()
+            try:
+                ctx.room.local_participant.publish_data(msg, reliable=True)
+            except Exception:
+                logger.debug("Failed to publish question progress data")
+
+            # Check if we should end the session
+            if question_count >= controller.max_questions:
+                end_msg = json.dumps({"type": "session_end"}).encode()
+                try:
+                    ctx.room.local_participant.publish_data(end_msg, reliable=True)
+                except Exception:
+                    pass
+                controller.finish()
 
     # Send initial greeting so the candidate doesn't have to speak first
     await session.say(
