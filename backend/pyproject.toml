@@ -15,6 +15,7 @@ dependencies = [
     "python-docx",
     "livekit-agents",
     "livekit-plugins-deepgram",
+    "livekit-plugins-google",
     "livekit-plugins-silero",
     "resend",
     "supabase",
