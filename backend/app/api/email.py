@@ -54,6 +54,39 @@ def _problem_response(status: int, title: str, detail: str) -> dict[str, Any]:
 # Endpoint
 # ---------------------------------------------------------------------------
 
+class ApplicationConfirmationRequest(BaseModel):
+    candidate_email: EmailStr
+    candidate_name: str
+    hiring_post_id: str
+    share_slug: str
+
+
+@router.post("/application-confirmation")
+async def send_application_confirmation(body: ApplicationConfirmationRequest) -> dict[str, str]:
+    """Send application confirmation email to a candidate."""
+    from app.services.supabase import get_record
+
+    try:
+        hiring_post = get_record("hiring_posts", body.hiring_post_id)
+        job_title = hiring_post.get("title", "the position")
+    except Exception:
+        job_title = "the position"
+
+    portal_url = f"{settings.FRONTEND_URL.rstrip('/')}/portal"
+
+    try:
+        message_id = email_service.send_confirmation(
+            candidate_email=body.candidate_email,
+            candidate_name=body.candidate_name,
+            job_title=job_title,
+            portal_url=portal_url,
+        )
+        return {"message_id": message_id, "status": "sent"}
+    except Exception as exc:
+        logger.exception("Failed to send application confirmation email")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/send", response_model=SendEmailResponse)
 async def send_email(body: SendEmailRequest) -> SendEmailResponse:
     """Dispatch a transactional email using a named template."""
