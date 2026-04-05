@@ -22,7 +22,7 @@ from livekit.agents import (
 
 from app.config import settings
 from app.interview.agent import create_interview_agent
-from app.services.supabase import get_record
+from app.services.supabase import get_record, insert_record
 
 logger = logging.getLogger("int.ai")
 
@@ -148,6 +148,52 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     await session.start(agent=agent, room=ctx.room)
+
+    # ------------------------------------------------------------------
+    # Record Q&A pairs to interview_qa table for post-interview evaluation
+    # ------------------------------------------------------------------
+    last_agent_text: str = ""
+    qa_number = 0
+
+    @session.on("conversation_item_added")
+    def _on_conversation_item(event: object) -> None:
+        nonlocal last_agent_text, qa_number
+
+        item = getattr(event, "item", None)
+        if item is None:
+            return
+
+        msg = getattr(item, "message", item)
+        role = getattr(msg, "role", None)
+        content = getattr(msg, "content", None)
+
+        if not role or not content:
+            return
+
+        # Handle content that might be a list
+        if isinstance(content, list):
+            content = " ".join(str(c) for c in content)
+        content = str(content).strip()
+        if not content:
+            return
+
+        if role == "assistant":
+            last_agent_text = content
+        elif role == "user" and last_agent_text:
+            # User responded to an agent question — store the Q&A pair
+            qa_number += 1
+            try:
+                insert_record("interview_qa", {
+                    "session_id": session_id,
+                    "question_number": qa_number,
+                    "question_type": "foundational",
+                    "question_text": last_agent_text,
+                    "answer_text": content,
+                })
+                logger.info("Stored Q&A #%d for session=%s", qa_number, session_id)
+            except Exception:
+                logger.exception("Failed to store Q&A #%d for session=%s", qa_number, session_id)
+            last_agent_text = ""
 
     # Track question count based on completed user speaking turns.
     # Each time the user finishes speaking = 1 answered question.

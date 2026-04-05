@@ -108,7 +108,7 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
     for qa in qa_items:
         scores = _evaluate_qa_pair(
             question=qa.get("question_text", ""),
-            answer=qa.get("answer_transcript", ""),
+            answer=qa.get("answer_text", ""),
             jd_text=jd_text,
         )
         all_scores.append(scores)
@@ -220,7 +220,7 @@ def _generate_summary(
     """Generate an AI narrative summary of the interview performance."""
     qa_block = "\n\n".join(
         f"Q{i+1}: {qa.get('question_text', '')}\n"
-        f"A{i+1}: {qa.get('answer_transcript', '')}\n"
+        f"A{i+1}: {qa.get('answer_text', '')}\n"
         f"Scores: tech={scores['technical_accuracy']}, depth={scores['depth_of_understanding']}, "
         f"comm={scores['communication_clarity']}, relevance={scores['relevance_to_jd']}\n"
         f"Rationale: {scores.get('score_rationale', '')}"
