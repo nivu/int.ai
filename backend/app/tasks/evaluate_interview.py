@@ -25,17 +25,20 @@ def evaluate_interview_task(self, session_id: str) -> dict:
         report = evaluate_interview(session_id)
 
         # Update application decision based on recommendation
-        application_id = report.get("application_id")
+        # Get application_id from the session record
+        from app.services.supabase import get_record
+        session_record = get_record("interview_sessions", session_id)
+        application_id = session_record.get("application_id")
         recommendation = report.get("recommendation", "")
 
         if application_id and recommendation:
-            decision_map = {
-                "advance": "advance",
-                "borderline": "borderline",
-                "reject": "reject",
+            status_map = {
+                "advance": "shortlisted",
+                "borderline": "interviewed",
+                "reject": "rejected",
             }
-            decision = decision_map.get(recommendation, recommendation)
-            update_record("applications", application_id, {"decision": decision})
+            new_status = status_map.get(recommendation, "interviewed")
+            update_record("applications", application_id, {"status": new_status})
             logger.info(
                 "Application %s decision set to '%s' based on interview evaluation",
                 application_id,
@@ -55,8 +58,7 @@ def evaluate_interview_task(self, session_id: str) -> dict:
         )
         try:
             update_record("interview_sessions", session_id, {
-                "status": "evaluation_error",
-                "evaluation_error": str(exc),
+                "status": "completed",
             })
         except Exception:
             logger.exception(

@@ -154,9 +154,7 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
 
     report_data: dict[str, Any] = {
         "session_id": session_id,
-        "application_id": application_id,
         "overall_grade": overall_grade,
-        "dimension_averages": dimension_averages,
         "recommendation": recommendation,
         "summary": summary_data["summary"],
         "strengths": summary_data["strengths"],
