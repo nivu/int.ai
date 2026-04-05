@@ -1,6 +1,7 @@
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Install system dependencies
 RUN apt-get update && \
@@ -9,12 +10,14 @@ RUN apt-get update && \
 
 WORKDIR /app
 
+# Install uv
+RUN pip install uv
+
 # Copy dependency files first for layer caching
 COPY pyproject.toml uv.lock ./
 
-# Install uv and sync production dependencies
-RUN pip install uv && \
-    uv sync --no-dev
+# Sync production dependencies
+RUN uv sync --no-dev
 
 # Copy application code
 COPY app/ app/
