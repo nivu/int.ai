@@ -1,7 +1,7 @@
-"""LiveKit VoicePipelineAgent factory for AI voice interviews.
+"""LiveKit Agent factory for AI voice interviews.
 
-Creates a fully configured agent that conducts technical interviews using
-Deepgram STT/TTS and Gemini as the backing LLM.
+Creates a fully configured Agent + AgentSession that conducts technical
+interviews using Deepgram STT/TTS and Gemini as the backing LLM.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ import logging
 import time
 from typing import Any
 
-from livekit.agents import llm as agents_llm
-from livekit.agents.pipeline import VoicePipelineAgent
+from livekit.agents import Agent, AgentSession, ChatContext
 from livekit.plugins import deepgram, google
 
 from app.config import settings
@@ -131,8 +130,8 @@ def create_interview_agent(
     resume_markdown: str,
     jd_text: str,
     template_config: dict[str, Any],
-) -> VoicePipelineAgent:
-    """Build and return a configured :class:`VoicePipelineAgent`.
+) -> tuple[Agent, AgentSession, _SessionController]:
+    """Build and return a configured :class:`Agent` and :class:`AgentSession`.
 
     Parameters
     ----------
@@ -148,8 +147,8 @@ def create_interview_agent(
 
     Returns
     -------
-    VoicePipelineAgent
-        Ready-to-run voice pipeline agent.
+    tuple[Agent, AgentSession, _SessionController]
+        The agent, session, and controller — ready to start.
     """
     max_questions: int = template_config.get("max_questions", 10)
     max_duration: int = template_config.get("max_duration_seconds", 1800)
@@ -163,37 +162,36 @@ def create_interview_agent(
     )
 
     # -- STT: Deepgram Nova-2, Indian English, streaming ---------------
-    stt = deepgram.STT(
+    stt_plugin = deepgram.STT(
         model="nova-2",
         language="en-IN",
         api_key=settings.DEEPGRAM_API_KEY.get_secret_value(),
     )
 
     # -- TTS: Deepgram, streaming --------------------------------------
-    tts = deepgram.TTS(
+    tts_plugin = deepgram.TTS(
         api_key=settings.DEEPGRAM_API_KEY.get_secret_value(),
     )
 
     # -- LLM: Gemini ---------------------------------------------------
-    llm_instance = google.LLM(
+    llm_plugin = google.LLM(
         model="gemini-2.0-flash",
         api_key=settings.GEMINI_API_KEY.get_secret_value(),
     )
 
-    # -- Chat context with system prompt --------------------------------
-    chat_ctx = agents_llm.ChatContext()
-    chat_ctx.append(role="system", text=_SYSTEM_PROMPT)
-
-    # -- Build the pipeline agent --------------------------------------
-    agent = VoicePipelineAgent(
-        stt=stt,
-        llm=llm_instance,
-        tts=tts,
-        chat_ctx=chat_ctx,
+    # -- Build the Agent (defines persona and instructions) ------------
+    agent = Agent(
+        instructions=_SYSTEM_PROMPT,
+        stt=stt_plugin,
+        llm=llm_plugin,
+        tts=tts_plugin,
         allow_interruptions=True,
     )
 
-    # Attach controller for external access (e.g. by session hooks).
-    agent._session_controller = controller  # type: ignore[attr-defined]
+    # -- Build the AgentSession (runtime that drives the voice loop) ---
+    session = AgentSession()
 
-    return agent
+    # Attach controller for external access (e.g. by entrypoint hooks).
+    session._interview_controller = controller  # type: ignore[attr-defined]
+
+    return agent, session, controller

@@ -19,6 +19,7 @@ dependencies = [
     "resend",
     "supabase",
     "python-dotenv",
+    "email-validator>=2.3.0",
 ]
 
 [build-system]

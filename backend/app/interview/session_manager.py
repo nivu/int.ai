@@ -11,8 +11,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from livekit.api import AccessToken, VideoGrants
-from livekit.api import LiveKitAPI
+from livekit.api import AccessToken, CreateRoomRequest, LiveKitAPI, VideoGrants
 
 from app.config import settings
 from app.services.supabase import get_record, insert_record, update_record
@@ -42,7 +41,7 @@ def _generate_candidate_token(room_name: str, identity: str, ttl: timedelta = _T
     )
     token.identity = identity
     token.ttl = ttl
-    token.add_grant(
+    token.with_grants(
         VideoGrants(
             room_join=True,
             room=room_name,
@@ -61,9 +60,11 @@ async def _create_livekit_room(room_name: str) -> None:
     )
     try:
         await api.room.create_room(
-            name=room_name,
-            empty_timeout=300,      # auto-close after 5 min if empty
-            max_participants=2,     # candidate + AI agent
+            CreateRoomRequest(
+                name=room_name,
+                empty_timeout=300,      # auto-close after 5 min if empty
+                max_participants=2,     # candidate + AI agent
+            )
         )
         logger.info("LiveKit room created: %s", room_name)
     finally:

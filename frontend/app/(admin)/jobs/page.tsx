@@ -10,6 +10,7 @@ import {
   CardAction,
 } from "@/components/ui/card";
 import JobsFilterTabs from "./jobs-filter-tabs";
+import JobsRealtimeWrapper from "./jobs-realtime-wrapper";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,84 +121,86 @@ export default async function JobsPage({
   }));
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Hiring Posts</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage your open positions
-          </p>
-        </div>
-        <Link href="/jobs/new">
-          <Button>Create New Job</Button>
-        </Link>
-      </div>
-
-      {/* Filters */}
-      <JobsFilterTabs currentStatus={filterStatus} />
-
-      {/* Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Jobs</CardTitle>
-          <CardAction>
-            <span className="text-sm text-muted-foreground">
-              {postsWithCounts.length} total
-            </span>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          {postsWithCounts.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground">
-              No hiring posts found. Create your first job to get started.
+    <JobsRealtimeWrapper orgId={orgId ?? ""}>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Hiring Posts</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage your open positions
             </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">Title</th>
-                    <th className="pb-2 pr-4 font-medium">Department</th>
-                    <th className="pb-2 pr-4 font-medium">Status</th>
-                    <th className="pb-2 pr-4 font-medium">Applications</th>
-                    <th className="pb-2 pr-4 font-medium">Created</th>
-                    <th className="pb-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {postsWithCounts.map((job) => (
-                    <tr key={job.id} className="border-b last:border-0">
-                      <td className="py-3 pr-4 font-medium">{job.title}</td>
-                      <td className="py-3 pr-4 text-muted-foreground">
-                        {job.department || "—"}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <Badge variant={statusVariant[job.status]}>
-                          {job.status}
-                        </Badge>
-                      </td>
-                      <td className="py-3 pr-4 tabular-nums">
-                        {job.application_count}
-                      </td>
-                      <td className="py-3 pr-4 text-muted-foreground">
-                        {formatDate(job.created_at)}
-                      </td>
-                      <td className="py-3">
-                        <Link href={`/jobs/${job.id}`}>
-                          <Button variant="outline" size="sm">
-                            View
-                          </Button>
-                        </Link>
-                      </td>
+          </div>
+          <Link href="/jobs/new">
+            <Button>Create New Job</Button>
+          </Link>
+        </div>
+
+        {/* Filters */}
+        <JobsFilterTabs currentStatus={filterStatus} />
+
+        {/* Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>All Jobs</CardTitle>
+            <CardAction>
+              <span className="text-sm text-muted-foreground">
+                {postsWithCounts.length} total
+              </span>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            {postsWithCounts.length === 0 ? (
+              <p className="py-8 text-center text-muted-foreground">
+                No hiring posts found. Create your first job to get started.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="pb-2 pr-4 font-medium">Title</th>
+                      <th className="pb-2 pr-4 font-medium">Department</th>
+                      <th className="pb-2 pr-4 font-medium">Status</th>
+                      <th className="pb-2 pr-4 font-medium">Applications</th>
+                      <th className="pb-2 pr-4 font-medium">Created</th>
+                      <th className="pb-2 font-medium">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                  </thead>
+                  <tbody>
+                    {postsWithCounts.map((job) => (
+                      <tr key={job.id} className="border-b last:border-0">
+                        <td className="py-3 pr-4 font-medium">{job.title}</td>
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {job.department || "—"}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <Badge variant={statusVariant[job.status]}>
+                            {job.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3 pr-4 tabular-nums">
+                          {job.application_count}
+                        </td>
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {formatDate(job.created_at)}
+                        </td>
+                        <td className="py-3">
+                          <Link href={`/jobs/${job.id}`}>
+                            <Button variant="outline" size="sm">
+                              View
+                            </Button>
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </JobsRealtimeWrapper>
   );
 }

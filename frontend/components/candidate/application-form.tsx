@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { backendFetch } from "@/lib/api/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,70 +63,28 @@ export function ApplicationForm({
     setError(null);
 
     try {
-      const supabase = createClient();
-
-      // Upsert candidate by email
-      const { data: candidate, error: candidateError } = await supabase
-        .from("candidates")
-        .upsert(
-          {
-            email: formData.email.trim().toLowerCase(),
-            full_name: formData.full_name.trim(),
-            phone: formData.phone.trim() || null,
-            current_role: formData.current_role.trim() || null,
-            current_company: formData.current_company.trim() || null,
-            years_experience: formData.years_experience
-              ? parseInt(formData.years_experience, 10)
-              : null,
-            location: formData.location.trim() || null,
-            photo_url: photoPath || null,
-          },
-          { onConflict: "email" }
-        )
-        .select("id")
-        .single();
-
-      if (candidateError) {
-        throw new Error(`Failed to save candidate: ${candidateError.message}`);
-      }
-
-      const candidateId = candidate.id;
-
-      // Check for duplicate application (T039)
-      const { data: existingApps, error: dupError } = await supabase
-        .from("applications")
-        .select("id")
-        .eq("hiring_post_id", hiringPostId)
-        .eq("candidate_id", candidateId);
-
-      if (dupError) {
-        throw new Error(`Failed to check for duplicates: ${dupError.message}`);
-      }
-
-      if (existingApps && existingApps.length > 0) {
-        setError(
-          "You've already applied to this position. Check your email for your portal link."
-        );
-        setSubmitting(false);
-        return;
-      }
-
-      // Create application record
-      const { error: appError } = await supabase.from("applications").insert({
-        hiring_post_id: hiringPostId,
-        candidate_id: candidateId,
-        resume_url: resumePath,
-        resume_filename: resumeFilename || "resume",
-        status: "applied",
+      // Submit via backend API (uses service role to bypass RLS for
+      // unauthenticated candidates)
+      await backendFetch("/api/v1/applications/submit", {
+        method: "POST",
+        body: JSON.stringify({
+          hiring_post_id: hiringPostId,
+          full_name: formData.full_name.trim(),
+          email: formData.email.trim().toLowerCase(),
+          phone: formData.phone.trim() || null,
+          current_role: formData.current_role.trim() || null,
+          current_company: formData.current_company.trim() || null,
+          years_experience: formData.years_experience
+            ? parseInt(formData.years_experience, 10)
+            : null,
+          location: formData.location.trim() || null,
+          photo_url: photoPath || null,
+          resume_url: resumePath,
+          resume_filename: resumeFilename || "resume",
+        }),
       });
 
-      if (appError) {
-        throw new Error(
-          `Failed to create application: ${appError.message}`
-        );
-      }
-
-      // Trigger confirmation email via backend API
+      // Trigger confirmation email via backend API (best-effort)
       try {
         await backendFetch("/api/v1/email/application-confirmation", {
           method: "POST",
@@ -144,7 +101,16 @@ export function ApplicationForm({
       }
 
       onSuccess();
-    } catch (err) {
+    } catch (err: unknown) {
+      // Handle duplicate application (409 from backend)
+      const backendErr = err as { status?: number; detail?: string };
+      if (backendErr.status === 409) {
+        setError(
+          "You've already applied to this position. Check your email for your portal link."
+        );
+        setSubmitting(false);
+        return;
+      }
       setError(
         err instanceof Error ? err.message : "Something went wrong. Please try again."
       );

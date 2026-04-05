@@ -77,6 +77,7 @@ def _mount_routers() -> None:
         ("app.api.interview", "router"),
         ("app.api.email", "router"),
         ("app.api.webhooks", "router"),
+        ("app.api.applications", "router"),
     ]
 
     for module_path, attr_name in router_modules:

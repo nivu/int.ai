@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { backendFetch } from "@/lib/api/backend";
+import { Button } from "@/components/ui/button";
 import CandidateTable, {
   type ApplicationRecord,
 } from "@/components/admin/candidate-table";
@@ -88,5 +90,55 @@ export default function CandidatesRealtime({
     };
   }, [hiringPostId]);
 
-  return <CandidateTable data={data} hiringPostId={hiringPostId} />;
+  // ---- Manual screening trigger ----
+  const [screeningIds, setScreeningIds] = useState<Set<string>>(new Set());
+
+  async function handleRunScreening(applicationId: string) {
+    setScreeningIds((prev) => new Set(prev).add(applicationId));
+    try {
+      await backendFetch("/api/v1/screening/trigger", {
+        method: "POST",
+        body: JSON.stringify({
+          application_id: applicationId,
+          hiring_post_id: hiringPostId,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to trigger screening:", err);
+    } finally {
+      setScreeningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(applicationId);
+        return next;
+      });
+    }
+  }
+
+  const appliedApps = data.filter((app) => app.status === "applied");
+
+  return (
+    <div className="space-y-4">
+      {appliedApps.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/50 px-4 py-3">
+          <span className="text-sm font-medium mr-2">
+            {appliedApps.length} unscreened application{appliedApps.length !== 1 ? "s" : ""}
+          </span>
+          {appliedApps.map((app) => (
+            <Button
+              key={app.id}
+              size="sm"
+              variant="outline"
+              disabled={screeningIds.has(app.id)}
+              onClick={() => handleRunScreening(app.id)}
+            >
+              {screeningIds.has(app.id)
+                ? "Screening..."
+                : `Screen ${app.candidate?.full_name ?? "Candidate"}`}
+            </Button>
+          ))}
+        </div>
+      )}
+      <CandidateTable data={data} hiringPostId={hiringPostId} />
+    </div>
+  );
 }
