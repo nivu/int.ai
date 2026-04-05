@@ -64,7 +64,7 @@ async def evaluate(body: EvaluateRequest) -> EvaluateResponse:
     """Enqueue an evaluation task for a completed interview session."""
     try:
         result = celery_app.send_task(
-            "app.tasks.evaluate_interview.evaluate_interview_task",
+            "evaluate_interview_task",
             args=[body.session_id],
         )
     except Exception:
