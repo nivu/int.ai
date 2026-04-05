@@ -13,7 +13,6 @@ import logging
 
 from livekit.agents import (
     AgentSession,
-    AgentStateChangedEvent,
     CloseEvent,
     JobContext,
     JobProcess,
@@ -150,10 +149,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(agent=agent, room=ctx.room)
 
-    # Track question count based on agent speaking turns
-    # Start at -1 to skip the initial greeting turn
-    question_count = -1
-    was_speaking = False
+    # Track question count based on completed user speaking turns.
+    # Each time the user finishes speaking = 1 answered question.
+    question_count = 0
 
     async def _publish_data(data: bytes) -> None:
         """Publish data to room participants (awaits the coroutine)."""
@@ -162,41 +160,46 @@ async def entrypoint(ctx: JobContext) -> None:
         except Exception:
             logger.debug("Failed to publish data message")
 
-    @session.on("agent_state_changed")
-    def _on_agent_state_changed(event: AgentStateChangedEvent) -> None:
-        nonlocal question_count, was_speaking
+    @session.on("user_state_changed")
+    def _on_user_state_changed(event: object) -> None:
+        nonlocal question_count
 
-        if event.new_state == "speaking":
-            was_speaking = True
-        elif was_speaking and event.new_state == "listening":
-            # Agent just finished speaking → a question was delivered
-            was_speaking = False
+        new_state = getattr(event, "new_state", None)
+        old_state = getattr(event, "old_state", None)
+
+        # User just finished speaking (was speaking → now listening)
+        if old_state == "speaking" and new_state == "listening":
             question_count += 1
-
-            # Only count actual questions (skip greeting)
-            if question_count <= 0:
-                return
 
             # Send progress update to frontend via data channel
             msg = json.dumps({
                 "type": "question_progress",
-                "current": question_count,
+                "current": min(question_count, controller.max_questions),
             }).encode()
             asyncio.create_task(_publish_data(msg))
 
-            # Check if we should end the session
+            logger.info(
+                "Question %d/%d answered for session=%s",
+                question_count, controller.max_questions, session_id,
+            )
+
+            # Check if we should end the session (let the agent respond
+            # to the last answer before ending)
             if question_count >= controller.max_questions:
-                async def _end_session() -> None:
-                    end_msg = json.dumps({"type": "session_end"}).encode()
-                    await _publish_data(end_msg)
-                    await session.say(
-                        "That was the last question. Thank you for your time and "
-                        "thoughtful responses. The interview is now complete.",
-                        allow_interruptions=False,
-                    )
-                    controller.finish()
-                    shutdown_event.set()
-                asyncio.create_task(_end_session())
+                async def _end_after_response() -> None:
+                    # Wait for the agent to finish its response to the last answer
+                    await asyncio.sleep(15)
+                    if not controller.ended:
+                        end_msg = json.dumps({"type": "session_end"}).encode()
+                        await _publish_data(end_msg)
+                        await session.say(
+                            "That was the last question. Thank you for your time and "
+                            "thoughtful responses. The interview is now complete.",
+                            allow_interruptions=False,
+                        )
+                        controller.finish()
+                        shutdown_event.set()
+                asyncio.create_task(_end_after_response())
 
     # Send initial greeting so the candidate doesn't have to speak first
     await session.say(
