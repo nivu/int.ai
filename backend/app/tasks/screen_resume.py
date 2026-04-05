@@ -137,15 +137,28 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
 
         if overall_score >= threshold:
             # Auto-advance to interview
-            interview_deadline = (
-                datetime.now(timezone.utc) + timedelta(days=7)
-            ).strftime("%B %d, %Y")
+            deadline_dt = datetime.now(timezone.utc) + timedelta(days=7)
+            interview_deadline = deadline_dt.strftime("%B %d, %Y")
 
             update_record("applications", application_id, {
                 "status": "interview_sent",
                 "interview_invited_at": datetime.now(timezone.utc).isoformat(),
-                "interview_deadline": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                "interview_deadline": deadline_dt.isoformat(),
             })
+
+            # Create interview session for the candidate
+            template_id = hiring_post.get("interview_template_id")
+            if template_id:
+                try:
+                    insert_record("interview_sessions", {
+                        "application_id": application_id,
+                        "template_id": template_id,
+                        "status": "pending",
+                        "deadline": deadline_dt.isoformat(),
+                    })
+                    logger.info("Interview session created for application=%s", application_id)
+                except Exception:
+                    logger.exception("Failed to create interview session for application=%s", application_id)
 
             if candidate_email:
                 try:

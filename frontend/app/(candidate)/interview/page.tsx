@@ -16,18 +16,20 @@ import { Badge } from "@/components/ui/badge";
 
 interface InterviewSession {
   id: string;
-  job_id: string;
-  candidate_id: string;
   status: string;
   deadline: string;
   consent_given_at: string | null;
-  job: {
-    title: string;
-    company_name?: string;
+  application: {
+    id: string;
+    candidate_id: string;
+    hiring_post: {
+      title: string;
+      department: string | null;
+    };
   };
   template: {
-    duration_minutes: number;
-    question_count: number;
+    max_duration_minutes: number;
+    max_questions: number;
   };
 }
 
@@ -54,21 +56,49 @@ export default function InterviewPage() {
 
         const now = new Date().toISOString();
 
+        // First get the candidate record for this auth user
+        let candidateId: string | null = null;
+
+        const { data: candidate } = await supabase
+          .from("candidates")
+          .select("id")
+          .eq("auth_user_id", user.id)
+          .single();
+
+        if (candidate) {
+          candidateId = candidate.id;
+        } else if (user.email) {
+          // Fallback: match by email
+          const { data: byEmail } = await supabase
+            .from("candidates")
+            .select("id")
+            .eq("email", user.email)
+            .single();
+          candidateId = byEmail?.id ?? null;
+        }
+
+        if (!candidateId) {
+          setLoading(false);
+          return;
+        }
+
         const { data, error: queryError } = await supabase
           .from("interview_sessions")
           .select(
             `
             id,
-            job_id,
-            candidate_id,
             status,
             deadline,
             consent_given_at,
-            job:jobs!inner(title, company_name),
-            template:interview_templates!inner(duration_minutes, question_count)
+            application:applications!inner(
+              id,
+              candidate_id,
+              hiring_post:hiring_posts!inner(title, department)
+            ),
+            template:interview_templates!inner(max_duration_minutes, max_questions)
           `
           )
-          .eq("candidate_id", user.id)
+          .eq("application.candidate_id", candidateId)
           .eq("status", "pending")
           .gt("deadline", now)
           .order("created_at", { ascending: false })
@@ -122,8 +152,8 @@ export default function InterviewPage() {
           token,
           serverUrl: server_url,
           sessionId: session.id,
-          maxQuestions: session.template.question_count,
-          jobTitle: session.job.title,
+          maxQuestions: session.template.max_questions,
+          jobTitle: session.application.hiring_post.title,
         })
       );
 
@@ -163,9 +193,9 @@ export default function InterviewPage() {
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
-              <CardTitle className="text-lg">{session.job.title}</CardTitle>
-              {session.job.company_name && (
-                <CardDescription>{session.job.company_name}</CardDescription>
+              <CardTitle className="text-lg">{session.application.hiring_post.title}</CardTitle>
+              {session.application.hiring_post.department && (
+                <CardDescription>{session.application.hiring_post.department}</CardDescription>
               )}
             </div>
             <Badge variant="secondary">AI Interview</Badge>
@@ -175,11 +205,11 @@ export default function InterviewPage() {
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
             <div>
               <span className="font-medium text-foreground">Duration:</span>{" "}
-              ~{session.template.duration_minutes} minutes
+              ~{session.template.max_duration_minutes} minutes
             </div>
             <div>
               <span className="font-medium text-foreground">Questions:</span>{" "}
-              {session.template.question_count}
+              {session.template.max_questions}
             </div>
             <div>
               <span className="font-medium text-foreground">Deadline:</span>{" "}
@@ -197,7 +227,7 @@ export default function InterviewPage() {
 
       {/* Checklist */}
       <InterviewChecklist
-        duration={session.template.duration_minutes}
+        duration={session.template.max_duration_minutes}
         onReady={handleReady}
       />
 
