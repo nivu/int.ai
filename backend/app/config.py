@@ -7,7 +7,7 @@ class Settings(BaseSettings):
 
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: SecretStr
-    GEMINI_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr
     DEEPGRAM_API_KEY: SecretStr
     LIVEKIT_URL: str
     LIVEKIT_API_KEY: str

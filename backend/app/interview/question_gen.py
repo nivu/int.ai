@@ -1,4 +1,4 @@
-"""AI interview question generator powered by Gemini.
+"""AI interview question generator powered by OpenAI GPT-4o mini.
 
 Produces contextual, non-repetitive technical interview questions based on the
 candidate's resume, the job description, and the conversation so far.
@@ -10,37 +10,20 @@ import json
 import logging
 from typing import Any
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 from app.config import settings
 
 logger = logging.getLogger("int.ai")
 
-# ---------------------------------------------------------------------------
-# Gemini client (module-level, reused across calls)
-# ---------------------------------------------------------------------------
-_client = genai.Client(api_key=settings.GEMINI_API_KEY.get_secret_value())
-
-_MODEL = "gemini-2.0-flash"
+_MODEL = "gpt-4o-mini"
 
 
 # ---------------------------------------------------------------------------
 # QuestionGenerator
 # ---------------------------------------------------------------------------
 class QuestionGenerator:
-    """Generates contextual interview questions using Gemini.
-
-    Parameters
-    ----------
-    resume_markdown:
-        The candidate's resume converted to Markdown.
-    jd_text:
-        The full job-description text.
-    conversation_history:
-        List of ``{"question": ..., "answer": ...}`` dicts representing the
-        interview so far.
-    """
+    """Generates contextual interview questions using OpenAI."""
 
     def __init__(
         self,
@@ -52,85 +35,67 @@ class QuestionGenerator:
         self.jd_text = jd_text
         self.conversation_history: list[dict[str, str]] = conversation_history or []
 
-    # ------------------------------------------------------------------
-    # Public helpers
-    # ------------------------------------------------------------------
+    def _llm_json(self, system_prompt: str, user_content: str, temperature: float = 0.7) -> dict:
+        client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
+        response = client.chat.completions.create(
+            model=_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+            temperature=temperature,
+        )
+        return json.loads(response.choices[0].message.content)
 
     def generate_next_question(self, foundational_ratio: float = 0.6) -> dict[str, Any]:
-        """Return the next interview question as a dict.
-
-        Returns
-        -------
-        dict
-            ``{"question_text": str, "question_type": "foundational"|"project",
-              "topic": str}``
-        """
+        """Return the next interview question as a dict."""
         covered_topics = [
             entry.get("topic", "") for entry in self.conversation_history if entry.get("topic")
         ]
 
-        prompt = self._build_generation_prompt(foundational_ratio, covered_topics)
+        system_prompt = (
+            "You are an expert technical interviewer. "
+            "Generate the next interview question. "
+            "Respond with ONLY a JSON object with keys: "
+            '"question_text" (the full question), '
+            '"question_type" ("foundational" or "project"), '
+            '"topic" (a short label for the topic).'
+        )
+
+        user_content = self._build_generation_prompt(foundational_ratio, covered_topics)
 
         try:
-            response = _client.models.generate_content(
-                model=_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.7,
-                    response_mime_type="application/json",
-                ),
-            )
-
-            result = json.loads(response.text)
-
-            # Normalise keys to expected schema
-            question: dict[str, Any] = {
+            result = self._llm_json(system_prompt, user_content, temperature=0.7)
+            return {
                 "question_text": result.get("question_text", ""),
                 "question_type": result.get("question_type", "foundational"),
                 "topic": result.get("topic", "general"),
             }
-            return question
-
         except Exception:
-            logger.exception("Failed to generate next question via Gemini")
+            logger.exception("Failed to generate next question via OpenAI")
             raise
 
     def should_follow_up(self, last_answer: str) -> bool:
-        """Assess whether *last_answer* is vague and requires a follow-up probe.
+        """Assess whether the last answer is vague and needs a follow-up probe."""
+        system_prompt = (
+            "You are an expert technical interviewer evaluator. "
+            "Determine whether the answer is vague, superficial, or "
+            "lacks concrete technical detail. "
+            'Respond with ONLY a JSON object: {"follow_up": true} or {"follow_up": false}.'
+        )
 
-        Returns ``True`` when the answer lacks specificity and the interviewer
-        should dig deeper before moving on.
-        """
-        prompt = (
-            "You are an expert technical interviewer evaluator.\n\n"
-            "Determine whether the following answer is vague, superficial, or "
-            "lacks concrete technical detail.  Respond with ONLY a JSON object: "
-            '{"follow_up": true} or {"follow_up": false}.\n\n'
+        user_content = (
             f"Question asked:\n{self._last_question_text()}\n\n"
             f"Candidate's answer:\n{last_answer}"
         )
 
         try:
-            response = _client.models.generate_content(
-                model=_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    response_mime_type="application/json",
-                ),
-            )
-
-            result = json.loads(response.text)
+            result = self._llm_json(system_prompt, user_content, temperature=0.0)
             return bool(result.get("follow_up", False))
-
         except Exception:
-            logger.exception("Failed to evaluate follow-up need via Gemini")
-            # Default to not following up on failure so the interview proceeds.
+            logger.exception("Failed to evaluate follow-up need via OpenAI")
             return False
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _last_question_text(self) -> str:
         if self.conversation_history:
@@ -156,7 +121,6 @@ class QuestionGenerator:
             )
 
         return (
-            "You are an expert technical interviewer.\n\n"
             "## Candidate resume\n"
             f"{self.resume_markdown}\n\n"
             "## Job description requirements\n"
@@ -165,17 +129,10 @@ class QuestionGenerator:
             f"{covered_block}"
             "## Instructions\n"
             f"- Roughly {int(foundational_ratio * 100)}% of questions should be "
-            f"\"foundational\" (core CS / engineering concepts relevant to the JD) "
+            f'"foundational" (core CS / engineering concepts relevant to the JD) '
             f"and {int((1 - foundational_ratio) * 100)}% should be \"project\" "
             f"(deep-dives into the candidate's resume projects and experience).\n"
             "- Ask deep, technical questions -- never surface-level or generic.\n"
-            "- If the last answer was vague or incomplete, ask a targeted follow-up "
-            "that probes for specifics instead of moving to a new topic.\n"
+            "- If the last answer was vague or incomplete, ask a targeted follow-up.\n"
             "- Do NOT repeat any topic that has already been covered.\n"
-            "- Pick the question type that best balances the ratio given the "
-            "conversation so far.\n\n"
-            "Respond with ONLY a JSON object with these keys:\n"
-            '  "question_text": the full question to ask the candidate,\n'
-            '  "question_type": "foundational" or "project",\n'
-            '  "topic": a short label for the topic this question covers.'
         )

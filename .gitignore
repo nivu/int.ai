@@ -19,10 +19,16 @@ build/
 # Environment files (contain secrets)
 .env
 .env.local
+.env.dev
+.env.prod
 .env.*.local
 frontend/.env
 frontend/.env.local
+frontend/.env.dev
+frontend/.env.prod
 backend/.env
+backend/.env.dev
+backend/.env.prod
 
 # IDE
 .vscode/

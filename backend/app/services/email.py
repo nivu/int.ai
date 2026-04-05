@@ -11,7 +11,7 @@ from app.config import settings
 # ---------------------------------------------------------------------------
 resend.api_key = settings.RESEND_API_KEY.get_secret_value()
 
-FROM_ADDRESS = "noreply@int.ai"
+FROM_ADDRESS = "int.ai <noreply@intai.nunnarilabs.com>"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +76,43 @@ def send_interview_invitation(
   <strong>{interview_deadline}</strong>.</p>
   <p><a href="{portal_url}" style="color: #4f46e5;">Start Interview</a></p>
   <p>If you have any questions, feel free to reply to this email.</p>
+  <br/>
+  <p>— The int.ai Team</p>
+</body>
+</html>"""
+
+    response = resend.Emails.send(
+        {
+            "from": FROM_ADDRESS,
+            "to": [candidate_email],
+            "subject": subject,
+            "html": html,
+        }
+    )
+    return response["id"]
+
+
+def send_rejection(
+    candidate_email: str,
+    candidate_name: str,
+    job_title: str,
+) -> str:
+    """Send a rejection email when the candidate doesn't meet the threshold.
+
+    Returns the Resend message ID.
+    """
+    subject = f"Application Update — {job_title}"
+    html = f"""\
+<html>
+<body style="font-family: sans-serif; color: #1a1a1a;">
+  <h2>Hi {candidate_name},</h2>
+  <p>Thank you for your interest in the <strong>{job_title}</strong> position
+  and for taking the time to apply.</p>
+  <p>After carefully reviewing your application, we've decided to move forward
+  with other candidates whose qualifications more closely match the
+  requirements for this role.</p>
+  <p>We encourage you to apply for future positions that align with your
+  experience and skills. We wish you the best in your career.</p>
   <br/>
   <p>— The int.ai Team</p>
 </body>

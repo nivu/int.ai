@@ -1,4 +1,4 @@
-"""Interview evaluation engine powered by Gemini.
+"""Interview evaluation engine powered by OpenAI GPT-4o mini.
 
 Scores each Q&A pair on four dimensions, computes an overall grade,
 generates an AI narrative summary, and produces the final interview report.
@@ -13,8 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 from app.config import settings
 from app.services.supabase import get_record, insert_record, supabase, update_record
@@ -22,10 +21,9 @@ from app.services.supabase import get_record, insert_record, supabase, update_re
 logger = logging.getLogger("int.ai")
 
 # ---------------------------------------------------------------------------
-# Gemini client
+# OpenAI client
 # ---------------------------------------------------------------------------
-_client = genai.Client(api_key=settings.GEMINI_API_KEY.get_secret_value())
-_MODEL = "gemini-2.0-flash"
+_MODEL = "gpt-4o-mini"
 
 # ---------------------------------------------------------------------------
 # Scoring dimensions and defaults
@@ -45,23 +43,39 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 }
 
 
+def _openai_json_request(system_prompt: str, user_content: str, temperature: float = 0.2) -> dict:
+    """Send a request to OpenAI requesting JSON output and return parsed dict."""
+    client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
+
+    start = time.monotonic()
+    response = client.chat.completions.create(
+        model=_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={"type": "json_object"},
+        temperature=temperature,
+    )
+    latency = time.monotonic() - start
+
+    usage = response.usage
+    logger.info(
+        "OpenAI eval call: latency=%.2fs prompt_tokens=%s completion_tokens=%s",
+        latency,
+        usage.prompt_tokens if usage else None,
+        usage.completion_tokens if usage else None,
+    )
+
+    return json.loads(response.choices[0].message.content)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def evaluate_interview(session_id: str) -> dict[str, Any]:
-    """Evaluate a completed interview session and produce an interview report.
-
-    Parameters
-    ----------
-    session_id:
-        UUID of the interview_session record.
-
-    Returns
-    -------
-    dict
-        The created ``interview_report`` record.
-    """
+    """Evaluate a completed interview session and produce an interview report."""
     # 1. Fetch session and Q&A records
     session = get_record("interview_sessions", session_id)
     application_id: str = session["application_id"]
@@ -114,7 +128,6 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
         dim_scores = [s[dim] for s in all_scores]
         dimension_averages[dim] = sum(dim_scores) / len(dim_scores) if dim_scores else 0.0
 
-    # Weighted sum of dimension averages (each 0-10), then scale to 0-100
     weighted_sum = sum(dimension_averages[dim] * weights[dim] for dim in DIMENSIONS)
     overall_grade = round(weighted_sum * 10, 2)  # 0-10 -> 0-100
     overall_grade = max(0.0, min(100.0, overall_grade))
@@ -160,7 +173,6 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
         recommendation,
     )
 
-    # 8. Return the report
     return report
 
 
@@ -168,59 +180,25 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _evaluate_qa_pair(
-    question: str,
-    answer: str,
-    jd_text: str,
-) -> dict[str, Any]:
-    """Call Gemini to score a single Q&A pair on all four dimensions."""
-    prompt = (
-        "You are an expert technical interview evaluator.\n\n"
-        "## Job Description\n"
-        f"{jd_text}\n\n"
-        "## Question\n"
-        f"{question}\n\n"
-        "## Candidate Answer\n"
-        f"{answer}\n\n"
-        "## Instructions\n"
-        "Evaluate the candidate's answer on these four dimensions, "
-        "each scored from 0 to 10 (integers only):\n"
-        "1. technical_accuracy - correctness and precision of technical content\n"
-        "2. depth_of_understanding - how deeply the candidate understands the topic\n"
-        "3. communication_clarity - how clearly the answer is expressed\n"
-        "4. relevance_to_jd - how relevant the answer is to the job requirements\n\n"
-        "Also provide a brief score_rationale (1-2 sentences) explaining the scores.\n\n"
+def _evaluate_qa_pair(question: str, answer: str, jd_text: str) -> dict[str, Any]:
+    """Call OpenAI to score a single Q&A pair on all four dimensions."""
+    system_prompt = (
+        "You are an expert technical interview evaluator. "
+        "Evaluate the candidate's answer on four dimensions, each scored 0-10 (integers). "
+        "Also provide a brief score_rationale (1-2 sentences). "
         "Respond with ONLY a JSON object with keys: "
         "technical_accuracy, depth_of_understanding, communication_clarity, "
         "relevance_to_jd (all integers 0-10), and score_rationale (string)."
     )
 
-    start = time.monotonic()
+    user_content = (
+        f"## Job Description\n{jd_text}\n\n"
+        f"## Question\n{question}\n\n"
+        f"## Candidate Answer\n{answer}"
+    )
+
     try:
-        response = _client.models.generate_content(
-            model=_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json",
-            ),
-        )
-        latency = time.monotonic() - start
-
-        result = json.loads(response.text)
-
-        # Log token usage and latency
-        usage = getattr(response, "usage_metadata", None)
-        if usage:
-            logger.info(
-                "QA evaluation: latency=%.2fs prompt_tokens=%s candidates_tokens=%s",
-                latency,
-                getattr(usage, "prompt_token_count", "N/A"),
-                getattr(usage, "candidates_token_count", "N/A"),
-            )
-        else:
-            logger.info("QA evaluation: latency=%.2fs", latency)
-
+        result = _openai_json_request(system_prompt, user_content, temperature=0.2)
         return {
             "technical_accuracy": _clamp_score(result.get("technical_accuracy", 0)),
             "depth_of_understanding": _clamp_score(result.get("depth_of_understanding", 0)),
@@ -228,9 +206,8 @@ def _evaluate_qa_pair(
             "relevance_to_jd": _clamp_score(result.get("relevance_to_jd", 0)),
             "score_rationale": result.get("score_rationale", ""),
         }
-
     except Exception:
-        logger.exception("Failed to evaluate Q&A pair via Gemini")
+        logger.exception("Failed to evaluate Q&A pair via OpenAI")
         raise
 
 
@@ -250,53 +227,25 @@ def _generate_summary(
         for i, (qa, scores) in enumerate(zip(qa_items, all_scores))
     )
 
-    prompt = (
-        "You are an expert technical interview evaluator writing a report for a recruiter.\n\n"
-        f"## Job Description\n{jd_text}\n\n"
-        f"## Interview Q&A with Scores\n{qa_block}\n\n"
-        f"## Overall Grade: {overall_grade}/100\n\n"
-        "## Instructions\n"
-        "Produce a JSON object with:\n"
-        '- "summary": a 3-5 sentence narrative covering the candidate\'s strengths, '
-        "concerns, and overall fit for the role.\n"
-        '- "strengths": an array of 2-4 short bullet strings highlighting key strengths.\n'
-        '- "concerns": an array of 1-3 short bullet strings highlighting concerns or gaps.\n\n'
+    system_prompt = (
+        "You are an expert technical interview evaluator writing a report for a recruiter. "
+        "Produce a JSON object with: "
+        '"summary" (3-5 sentence narrative), '
+        '"strengths" (array of 2-4 bullet strings), '
+        '"concerns" (array of 1-3 bullet strings). '
         "Respond with ONLY the JSON object."
     )
 
-    start = time.monotonic()
+    user_content = (
+        f"## Job Description\n{jd_text}\n\n"
+        f"## Interview Q&A with Scores\n{qa_block}\n\n"
+        f"## Overall Grade: {overall_grade}/100"
+    )
+
     try:
-        response = _client.models.generate_content(
-            model=_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.4,
-                response_mime_type="application/json",
-            ),
-        )
-        latency = time.monotonic() - start
-
-        result = json.loads(response.text)
-
-        usage = getattr(response, "usage_metadata", None)
-        if usage:
-            logger.info(
-                "Summary generation: latency=%.2fs prompt_tokens=%s candidates_tokens=%s",
-                latency,
-                getattr(usage, "prompt_token_count", "N/A"),
-                getattr(usage, "candidates_token_count", "N/A"),
-            )
-        else:
-            logger.info("Summary generation: latency=%.2fs", latency)
-
-        return {
-            "summary": result.get("summary", ""),
-            "strengths": result.get("strengths", []),
-            "concerns": result.get("concerns", []),
-        }
-
+        return _openai_json_request(system_prompt, user_content, temperature=0.4)
     except Exception:
-        logger.exception("Failed to generate interview summary via Gemini")
+        logger.exception("Failed to generate interview summary via OpenAI")
         raise
 
 

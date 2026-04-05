@@ -66,16 +66,15 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         # 4. Store parsed data in resume_data table
         resume_data_record = insert_record("resume_data", {
             "application_id": application_id,
-            "name": parsed.get("name", ""),
-            "email": parsed.get("email", ""),
-            "education": parsed.get("education", []),
-            "experience": parsed.get("experience", []),
-            "skills": parsed.get("skills", []),
-            "projects": parsed.get("projects", []),
-            "certifications": parsed.get("certifications", []),
-            "summary": parsed.get("summary", ""),
+            "parsed_name": parsed.get("name", ""),
+            "parsed_email": parsed.get("email", ""),
+            "parsed_education": parsed.get("education", []),
+            "parsed_experience": parsed.get("experience", []),
+            "parsed_skills": parsed.get("skills", []),
+            "parsed_projects": parsed.get("projects", []),
+            "parsed_certifications": parsed.get("certifications", []),
+            "parsed_summary": parsed.get("summary", ""),
             "raw_markdown": parsed.get("raw_markdown", ""),
-            "raw_text": parsed.get("raw_text", ""),
         })
         resume_data_id = resume_data_record["id"]
 
@@ -106,23 +105,34 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
 
         # 8. Update application with scores and status
         update_data = {
-            "screening_scores": {
-                **scores,
-                "overall": overall_score,
-                "skill_details": skill_details,
-                "experience_details": experience_details,
-                "culture_details": culture_details,
-            },
-            "overall_score": round(overall_score * 100, 2),
+            "embedding_score": round(embedding_score, 4),
+            "skill_match_score": round(skill_score, 4),
+            "experience_match_score": round(experience_score, 4),
+            "culture_match_score": round(culture_score, 4),
+            "overall_score": round(overall_score, 4),
             "status": "screened",
+            "screening_completed_at": datetime.now(timezone.utc).isoformat(),
         }
         update_record("applications", application_id, update_data)
+
+        # Store score details in resume_data
+        update_record("resume_data", resume_data_id, {
+            "skill_match_details": skill_details,
+            "experience_match_details": experience_details,
+            "culture_match_details": culture_details,
+        })
 
         # 9. Store embedding in resume_data
         resume_embedding = embed_text(resume_text)
         store_embedding(resume_data_id, resume_embedding)
 
-        # 10. Auto-advance logic
+        # 10. Get candidate details for emails
+        candidate = get_record("candidates", application["candidate_id"])
+        candidate_email = candidate.get("email", "")
+        candidate_name = candidate.get("full_name", "")
+        portal_url = f"{settings.FRONTEND_URL}/portal"
+
+        # 11. Auto-advance logic
         rejection_threshold = threshold - (REVIEW_BAND / 100.0)
 
         if overall_score >= threshold:
@@ -131,12 +141,11 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                 datetime.now(timezone.utc) + timedelta(days=7)
             ).strftime("%B %d, %Y")
 
-            portal_url = f"{settings.FRONTEND_URL}/applications/{application_id}"
-
-            update_record("applications", application_id, {"status": "interview_sent"})
-
-            candidate_email = parsed.get("email") or application.get("candidate_email", "")
-            candidate_name = parsed.get("name") or application.get("candidate_name", "")
+            update_record("applications", application_id, {
+                "status": "interview_sent",
+                "interview_invited_at": datetime.now(timezone.utc).isoformat(),
+                "interview_deadline": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+            })
 
             if candidate_email:
                 try:
@@ -153,7 +162,18 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
 
         elif overall_score < rejection_threshold:
             update_record("applications", application_id, {"status": "rejected"})
-            logger.info("Application %s auto-rejected (score=%.3f)", application_id, overall_score)
+
+            if candidate_email:
+                try:
+                    email_service.send_rejection(
+                        candidate_email=candidate_email,
+                        candidate_name=candidate_name,
+                        job_title=job_title,
+                    )
+                    logger.info("Rejection email sent to %s", candidate_email)
+                except Exception:
+                    logger.exception("Failed to send rejection email for application=%s", application_id)
+
         else:
             # Score is between rejection_threshold and threshold — flag for review
             logger.info("Application %s flagged for review (score=%.3f)", application_id, overall_score)

@@ -24,7 +24,7 @@ interface Application {
   hiring_post: {
     id: string;
     title: string;
-    company_name: string | null;
+    department: string | null;
   } | null;
 }
 
@@ -55,12 +55,22 @@ export default function CandidatePortalPage() {
 
     if (!user) return;
 
-    // Get candidate record
-    const { data: candidate } = await supabase
+    // Get candidate record — try by auth_user_id first, fall back to email
+    let { data: candidate } = await supabase
       .from("candidates")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("auth_user_id", user.id)
       .single();
+
+    if (!candidate && user.email) {
+      // Fallback: match by email and link the auth user
+      const { data: byEmail } = await supabase
+        .from("candidates")
+        .select("id")
+        .eq("email", user.email)
+        .single();
+      candidate = byEmail;
+    }
 
     if (!candidate) {
       setLoading(false);
@@ -81,7 +91,7 @@ export default function CandidatePortalPage() {
         hiring_post:hiring_posts (
           id,
           title,
-          company_name
+          department
         )
       `
       )
@@ -156,7 +166,7 @@ export default function CandidatePortalPage() {
       <div className="space-y-4">
         {applications.map((app) => {
           const jobTitle = app.hiring_post?.title ?? "Untitled Position";
-          const company = app.hiring_post?.company_name ?? "Unknown Company";
+          const company = app.hiring_post?.department ?? "General";
           const showInterviewButton =
             app.status === "interview_invited" &&
             isWithinDeadline(app.interview_deadline);
