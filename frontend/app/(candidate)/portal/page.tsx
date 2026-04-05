@@ -168,7 +168,7 @@ export default function CandidatePortalPage() {
           const jobTitle = app.hiring_post?.title ?? "Untitled Position";
           const company = app.hiring_post?.department ?? "General";
           const showInterviewButton =
-            app.status === "interview_invited" &&
+            (app.status === "interview_invited" || app.status === "interview_sent") &&
             isWithinDeadline(app.interview_deadline);
 
           return (

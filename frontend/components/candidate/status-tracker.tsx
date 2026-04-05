@@ -17,8 +17,25 @@ interface StatusTrackerProps {
   currentStatus: string;
 }
 
+// Map actual DB statuses to stepper step keys
+const STATUS_TO_STEP: Record<string, string> = {
+  applied: "applied",
+  screened: "screening_complete",
+  screening_complete: "screening_complete",
+  interview_sent: "interview_invited",
+  interview_invited: "interview_invited",
+  interviewed: "interview_complete",
+  interview_complete: "interview_complete",
+  shortlisted: "decision_pending",
+  decision_pending: "decision_pending",
+  rejected: "outcome",
+  hired: "outcome",
+  outcome: "outcome",
+};
+
 export function StatusTracker({ currentStatus }: StatusTrackerProps) {
-  const currentIndex = STEPS.findIndex((s) => s.key === currentStatus);
+  const mappedStep = STATUS_TO_STEP[currentStatus] ?? currentStatus;
+  const currentIndex = STEPS.findIndex((s) => s.key === mappedStep);
 
   return (
     <div className="w-full">
