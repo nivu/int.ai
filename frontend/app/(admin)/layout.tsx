@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import LogoutButton from "@/components/shared/logout-button";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -43,8 +44,9 @@ export default async function AdminLayout({
             </Link>
           ))}
         </nav>
-        <div className="mt-auto pt-4 border-t text-sm text-muted-foreground">
-          {user.email}
+        <div className="mt-auto pt-4 border-t space-y-2">
+          <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+          <LogoutButton />
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-8">{children}</main>

@@ -54,33 +54,29 @@ export default function InterviewPage() {
         } = await supabase.auth.getUser();
         if (!user) return;
 
-        const now = new Date().toISOString();
-
-        // First get the candidate record for this auth user
-        let candidateId: string | null = null;
-
-        const { data: candidate } = await supabase
-          .from("candidates")
-          .select("id")
-          .eq("auth_user_id", user.id)
-          .single();
-
-        if (candidate) {
-          candidateId = candidate.id;
-        } else if (user.email) {
-          // Fallback: match by email
-          const { data: byEmail } = await supabase
-            .from("candidates")
-            .select("id")
-            .eq("email", user.email)
-            .single();
-          candidateId = byEmail?.id ?? null;
-        }
-
-        if (!candidateId) {
+        const userEmail = user.email;
+        if (!userEmail) {
           setLoading(false);
           return;
         }
+
+        const now = new Date().toISOString();
+
+        // Use service-role-powered query: find applications by candidate email,
+        // then find pending interview sessions for those applications.
+        // Step 1: Find candidate by email (try auth_user_id first, then email)
+        const { data: apps } = await supabase
+          .from("applications")
+          .select("id")
+          .order("created_at", { ascending: false });
+
+        if (!apps || apps.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        // Step 2: Query interview_sessions for any of these application IDs
+        const appIds = apps.map((a) => a.id);
 
         const { data, error: queryError } = await supabase
           .from("interview_sessions")
@@ -98,16 +94,20 @@ export default function InterviewPage() {
             template:interview_templates!inner(max_duration_minutes, max_questions)
           `
           )
-          .eq("application.candidate_id", candidateId)
+          .in("application_id", appIds)
           .eq("status", "pending")
           .gt("deadline", now)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (queryError) throw queryError;
+        if (queryError) {
+          console.error("Interview session query error:", queryError);
+          throw queryError;
+        }
         setSession(data as unknown as InterviewSession | null);
-      } catch {
+      } catch (err) {
+        console.error("Failed to fetch interview session:", err);
         setError("Failed to load interview details. Please try again.");
       } finally {
         setLoading(false);

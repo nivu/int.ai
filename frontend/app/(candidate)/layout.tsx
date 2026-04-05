@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import LogoutButton from "@/components/shared/logout-button";
 
 export default async function CandidateLayout({
   children,
@@ -23,7 +24,10 @@ export default async function CandidateLayout({
           <Link href="/portal" className="text-lg font-bold tracking-tight">
             int.ai
           </Link>
-          <span className="text-sm text-muted-foreground">{user.email}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">{user.email}</span>
+            <LogoutButton className="text-sm text-muted-foreground hover:text-foreground transition-colors" />
+          </div>
         </div>
       </header>
       <main className="flex-1">

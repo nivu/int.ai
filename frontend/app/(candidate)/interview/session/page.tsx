@@ -26,7 +26,9 @@ export default function InterviewSessionPage() {
   const [completed, setCompleted] = useState(false);
 
   useEffect(() => {
-    // Retrieve room data from sessionStorage (set by the interview page)
+    // Only read sessionStorage once — use a ref to prevent strict mode double-read
+    if (roomData) return;
+
     const raw = sessionStorage.getItem("interview_room");
     if (!raw) {
       router.replace("/interview");
@@ -39,12 +41,10 @@ export default function InterviewSessionPage() {
         throw new Error("Incomplete room data");
       }
       setRoomData(data);
-      // Clear from storage so refresh redirects to interview page
-      sessionStorage.removeItem("interview_room");
     } catch {
       router.replace("/interview");
     }
-  }, [router]);
+  }, [router, roomData]);
 
   const livekitUrl =
     roomData?.serverUrl ||
