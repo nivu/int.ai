@@ -398,7 +398,7 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
             <Select
               value={form.interview_template_id || "none"}
               onValueChange={(value) =>
-                update("interview_template_id", value === "none" ? "" : value)
+                update("interview_template_id", value === "none" || !value ? "" : value)
               }
             >
               <SelectTrigger>
