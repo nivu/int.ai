@@ -53,9 +53,9 @@ export interface ApplicationRecord {
     email: string;
   };
   resume_data: {
-    current_role: string | null;
-    experience_years: number | null;
-    skills: string[];
+    parsed_summary: string | null;
+    parsed_experience: { company: string; role: string; duration: string; description: string }[];
+    parsed_skills: string[];
   } | null;
   // optional: present when showing all-candidates view
   hiring_post?: {
@@ -112,13 +112,15 @@ const statusConfig: Record<
 
 function scorePercent(value: number | null | undefined): string {
   if (value == null) return "—";
-  return `${Math.round(value)}%`;
+  // Scores are stored as decimals 0.0–1.0; convert to percentage
+  return `${Math.round(value * 100)}%`;
 }
 
 function overallScoreColor(value: number | null | undefined): string {
   if (value == null) return "text-muted-foreground";
-  if (value > 70) return "text-green-600 dark:text-green-400";
-  if (value >= 50) return "text-yellow-600 dark:text-yellow-400";
+  const pct = value * 100;
+  if (pct > 70) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-yellow-600 dark:text-yellow-400";
   return "text-red-600 dark:text-red-400";
 }
 
@@ -206,29 +208,37 @@ function buildColumns(
   }
 
   cols.push(
-    // Current Role
+    // Current Role (latest from parsed_experience)
     {
       id: "current_role",
-      accessorFn: (row) => row.resume_data?.current_role ?? "",
+      accessorFn: (row) => {
+        const exp = row.resume_data?.parsed_experience;
+        if (exp && exp.length > 0) return exp[0].role ?? "";
+        return "";
+      },
       header: "Current Role",
       cell: ({ getValue }) => getValue<string>() || "—",
     },
-    // Experience
+    // Experience (latest company + duration)
     {
       id: "experience",
-      accessorFn: (row) => row.resume_data?.experience_years ?? null,
+      accessorFn: (row) => {
+        const exp = row.resume_data?.parsed_experience;
+        if (exp && exp.length > 0) return exp[0].duration ?? "";
+        return "";
+      },
       header: ({ column }) => (
         <SortableHeader label="Experience" column={column} />
       ),
       cell: ({ getValue }) => {
-        const v = getValue<number | null>();
-        return v != null ? `${v} yrs` : "—";
+        const v = getValue<string>();
+        return v || "—";
       },
     },
     // Key Skills
     {
       id: "skills",
-      accessorFn: (row) => row.resume_data?.skills ?? [],
+      accessorFn: (row) => row.resume_data?.parsed_skills ?? [],
       header: "Key Skills",
       cell: ({ getValue }) => {
         const skills = getValue<string[]>();

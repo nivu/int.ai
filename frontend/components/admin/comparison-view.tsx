@@ -70,10 +70,9 @@ export interface ComparisonCandidate {
   culture_match_score: number | null;
   embedding_score: number | null;
   resume_data: {
-    skills?: string[];
-    current_role?: string | null;
-    experience_years?: number | null;
-    work_experience?: WorkExperience[];
+    parsed_skills?: string[];
+    parsed_summary?: string | null;
+    parsed_experience?: { company: string; role: string; duration: string; description: string }[];
   } | null;
   interview_reports?: InterviewReport[];
 }
@@ -110,7 +109,7 @@ function ScoreOverview({ candidates }: { candidates: ComparisonCandidate[] }) {
   const data = metrics.map((m) => {
     const entry: Record<string, string | number> = { metric: m.label };
     candidates.forEach((c, i) => {
-      entry[`candidate_${i}`] = scoreVal(c[m.key]);
+      entry[`candidate_${i}`] = Math.round(scoreVal(c[m.key]) * 100);
     });
     return entry;
   });
@@ -220,7 +219,7 @@ function SkillsOverlap({
 }) {
   // Collect all unique skills across candidates
   const allSkills = Array.from(
-    new Set(candidates.flatMap((c) => c.resume_data?.skills ?? []))
+    new Set(candidates.flatMap((c) => c.resume_data?.parsed_skills ?? []))
   ).sort();
 
   if (allSkills.length === 0) {
@@ -255,7 +254,7 @@ function SkillsOverlap({
               <tr key={skill} className="border-b last:border-0">
                 <td className="px-3 py-1.5 font-medium">{skill}</td>
                 {candidates.map((c) => {
-                  const has = c.resume_data?.skills?.includes(skill);
+                  const has = c.resume_data?.parsed_skills?.includes(skill);
                   return (
                     <td key={c.id} className="px-3 py-1.5 text-center">
                       {has ? (
@@ -294,17 +293,17 @@ function ExperienceTimeline({
   }[] = [];
 
   candidates.forEach((c, i) => {
-    const experiences = c.resume_data?.work_experience ?? [];
+    const experiences = c.resume_data?.parsed_experience ?? [];
     experiences.forEach((exp) => {
-      const endYear = exp.end_year ?? new Date().getFullYear();
-      const startYear = exp.start_year ?? endYear;
-      const duration = exp.duration_years ?? endYear - startYear;
+      // Try to parse duration string (e.g. "2 years", "3 years 6 months")
+      const durationMatch = exp.duration?.match(/(\d+)/);
+      const duration = durationMatch ? parseInt(durationMatch[1], 10) : 1;
       barData.push({
-        label: `${candidateName(c)} - ${exp.title ?? "Role"}`,
+        label: `${candidateName(c)} - ${exp.role ?? "Role"}`,
         candidateIndex: i,
         duration: Math.max(duration, 0.5),
         company: exp.company ?? "",
-        title: exp.title ?? "",
+        title: exp.role ?? "",
       });
     });
   });
