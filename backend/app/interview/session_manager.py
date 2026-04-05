@@ -254,7 +254,7 @@ async def end_session(session_id: str) -> None:
 
     # Enqueue evaluation
     celery_app.send_task(
-        "app.tasks.evaluate_interview.evaluate_interview_task",
+        "evaluate_interview_task",
         args=[session_id],
     )
 

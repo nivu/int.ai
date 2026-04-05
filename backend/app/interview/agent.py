@@ -112,7 +112,7 @@ class _SessionController:
 
         try:
             celery_app.send_task(
-                "app.tasks.evaluate_interview.evaluate_interview_task",
+                "evaluate_interview_task",
                 args=[self.session_id],
             )
             logger.info(
