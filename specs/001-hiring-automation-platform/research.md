@@ -63,7 +63,7 @@ Store recording URL + transcript in Supabase.
 - `livekit-plugins-deepgram` — STT/TTS integration
 - `livekit` — WebRTC client SDK
 - `livekit-plugins-silero` — VAD fallback
-- `gemini` — Claude Sonnet SDK
+- `openai` — OpenAI GPT-4o mini SDK
 
 ### Cost Estimate
 

@@ -42,7 +42,7 @@ cp backend/.env.example backend/.env
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | frontend | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | backend | Supabase service role key |
 | `SUPABASE_URL` | backend | Supabase project URL |
-| `GEMINI_API_KEY` | backend | Claude API key |
+| `OPENAI_API_KEY` | backend | OpenAI API key |
 | `DEEPGRAM_API_KEY` | backend | Deepgram STT/TTS key |
 | `LIVEKIT_URL` | backend | LiveKit server URL |
 | `LIVEKIT_API_KEY` | backend | LiveKit API key |

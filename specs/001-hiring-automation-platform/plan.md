@@ -17,7 +17,7 @@ evaluation, grading, and reporting are fully automated.
 
 **Language/Version**: Python 3.11+ (backend), TypeScript 5.x (frontend)
 **Primary Dependencies**: FastAPI, LiveKit Agents SDK, Deepgram SDK,
-Gemini SDK, sentence-transformers, Celery, @supabase/ssr, Next.js 14+,
+OpenAI SDK, sentence-transformers, Celery, @supabase/ssr, Next.js 14+,
 shadcn/ui, Recharts, TanStack Table
 **Storage**: Supabase PostgreSQL + pgvector extension + Supabase Storage
 **Testing**: pytest (backend), vitest + Playwright (frontend)

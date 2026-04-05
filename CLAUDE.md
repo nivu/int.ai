@@ -4,7 +4,7 @@ Auto-generated from all feature plans. Last updated: 2026-04-05
 
 ## Active Technologies
 
-- Python 3.11+ (backend): FastAPI, LiveKit Agents SDK, Deepgram SDK, Gemini SDK, Celery, sentence-transformers
+- Python 3.11+ (backend): FastAPI, LiveKit Agents SDK, Deepgram SDK, OpenAI SDK, Celery, sentence-transformers
 - TypeScript 5.x (frontend): Next.js 14+ (App Router), @supabase/ssr, shadcn/ui, Recharts, TanStack Table
 - Database: Supabase PostgreSQL + pgvector + Supabase Storage + Supabase Auth
 

@@ -26,11 +26,11 @@
 **Purpose**: Project initialization, dependency installation, base configuration
 
 - [ ] T001 Initialize Next.js 14+ project with TypeScript in frontend/ using `pnpm create next-app`
-- [ ] T002 Initialize Python project with pyproject.toml in backend/ with FastAPI, uvicorn, celery, redis, pydantic-settings, gemini, sentence-transformers, pdfplumber, python-docx, livekit-agents, livekit-plugins-deepgram, livekit-plugins-silero, resend dependencies
+- [ ] T002 Initialize Python project with pyproject.toml in backend/ with FastAPI, uvicorn, celery, redis, pydantic-settings, openai, sentence-transformers, pdfplumber, python-docx, livekit-agents, livekit-plugins-deepgram, livekit-plugins-openai, livekit-plugins-silero, resend dependencies
 - [ ] T003 Initialize Supabase project in supabase/ with `npx supabase init` and configure config.toml
 - [ ] T004 [P] Install and configure shadcn/ui in frontend/ with Tailwind CSS
 - [ ] T005 [P] Install Recharts, TanStack Table, @supabase/ssr, @supabase/supabase-js, livekit-client in frontend/package.json
-- [ ] T006 [P] Create backend/app/config.py with Pydantic Settings for all env vars (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY, DEEPGRAM_API_KEY, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, REDIS_URL, RESEND_API_KEY)
+- [ ] T006 [P] Create backend/app/config.py with Pydantic Settings for all env vars (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY, DEEPGRAM_API_KEY, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, REDIS_URL, RESEND_API_KEY)
 - [ ] T007 [P] Create backend/.env.example and frontend/.env.example with all required environment variables
 - [ ] T008 [P] Create frontend/lib/supabase/client.ts with browser Supabase client using @supabase/ssr
 - [ ] T009 [P] Create frontend/lib/supabase/server.ts with Server Component Supabase client using @supabase/ssr and cookies
