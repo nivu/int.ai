@@ -7,12 +7,14 @@ Run as:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from livekit.agents import (
     AgentSession,
     AgentStateChangedEvent,
+    CloseEvent,
     JobContext,
     JobProcess,
     WorkerOptions,
@@ -179,6 +181,22 @@ async def entrypoint(ctx: JobContext) -> None:
         "Are you ready for the first question?",
         allow_interruptions=True,
     )
+
+    # Keep the entrypoint alive until the session closes
+    shutdown_event = asyncio.Event()
+
+    @session.on("close")
+    def _on_close(event: CloseEvent) -> None:
+        controller.finish()
+        shutdown_event.set()
+
+    # Also handle room disconnect
+    @ctx.room.on("disconnected")
+    def _on_room_disconnect() -> None:
+        controller.finish()
+        shutdown_event.set()
+
+    await shutdown_event.wait()
 
 
 # ---------------------------------------------------------------------------
