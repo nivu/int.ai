@@ -131,6 +131,14 @@ async def entrypoint(ctx: JobContext) -> None:
 
     await session.start(agent=agent, room=ctx.room)
 
+    # Send initial greeting so the candidate doesn't have to speak first
+    await session.say(
+        "Hi there! Welcome to your interview for the position. "
+        "I'm your AI interviewer today. Let's get started. "
+        "Are you ready for the first question?",
+        allow_interruptions=True,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Worker configuration
