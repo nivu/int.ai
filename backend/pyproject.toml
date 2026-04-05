@@ -1,0 +1,26 @@
+[project]
+name = "int-ai-backend"
+version = "0.1.0"
+description = "Backend for int.ai - AI-powered interview platform"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "celery[redis]",
+    "redis",
+    "pydantic-settings",
+    "google-genai",
+    "sentence-transformers",
+    "pdfplumber",
+    "python-docx",
+    "livekit-agents",
+    "livekit-plugins-deepgram",
+    "livekit-plugins-silero",
+    "resend",
+    "supabase",
+    "python-dotenv",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"

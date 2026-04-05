@@ -1,0 +1,25 @@
+"""Celery worker configuration for int.ai background tasks."""
+
+from celery import Celery
+
+from app.config import settings
+
+# ---------------------------------------------------------------------------
+# Celery application
+# ---------------------------------------------------------------------------
+celery_app = Celery(
+    "int_ai",
+    broker=settings.REDIS_URL,
+    backend=settings.REDIS_URL,
+)
+
+celery_app.conf.update(
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    task_track_started=True,
+    task_time_limit=600,  # 10 minutes max per task
+)
+
+# Auto-discover tasks in the app.tasks package
+celery_app.autodiscover_tasks(["app.tasks"])
