@@ -21,9 +21,8 @@ RUN uv sync --no-dev
 
 # Copy application code
 COPY app/ app/
-COPY run_agent.py ./
+COPY run_agent.py start_api.py ./
 
 EXPOSE 8000
 
-ENTRYPOINT ["sh", "-c"]
-CMD ["uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "start_api.py"]
