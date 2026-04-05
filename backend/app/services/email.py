@@ -129,6 +129,70 @@ def send_rejection(
     return response["id"]
 
 
+def send_interview_completed(
+    candidate_email: str,
+    candidate_name: str,
+    job_title: str,
+    recommendation: str,
+    portal_url: str,
+) -> str:
+    """Send a post-interview outcome email based on the evaluation result.
+
+    Returns the Resend message ID.
+    """
+    if recommendation == "advance":
+        subject = f"Great News — {job_title}"
+        body_middle = (
+            f"<p>We're pleased to let you know that your interview went very well! "
+            f"Your application for the <strong>{job_title}</strong> position has been "
+            f"shortlisted and will be reviewed by our hiring team for the next steps.</p>"
+            f"<p>We were impressed by your responses and will be in touch shortly.</p>"
+            f'<p>You can track your status anytime: <a href="{portal_url}" style="color: #4f46e5;">View Portal</a></p>'
+        )
+    elif recommendation == "borderline":
+        subject = f"Interview Update — {job_title}"
+        body_middle = (
+            f"<p>Thank you for completing your interview for the "
+            f"<strong>{job_title}</strong> position. We appreciate the time and "
+            f"effort you put into your responses.</p>"
+            f"<p>Your application is currently under review by our hiring team. "
+            f"We'll reach out with an update as soon as a decision has been made.</p>"
+            f'<p>You can track your status anytime: <a href="{portal_url}" style="color: #4f46e5;">View Portal</a></p>'
+        )
+    else:
+        subject = f"Interview Update — {job_title}"
+        body_middle = (
+            f"<p>Thank you for taking the time to complete your interview for the "
+            f"<strong>{job_title}</strong> position. We truly appreciate your interest "
+            f"and the effort you put into the process.</p>"
+            f"<p>After careful review, we've decided to move forward with other "
+            f"candidates whose experience more closely aligns with the requirements "
+            f"for this particular role.</p>"
+            f"<p>This does not reflect on your abilities — hiring decisions involve "
+            f"many factors. We encourage you to apply for future openings that match "
+            f"your skills and experience.</p>"
+        )
+
+    html = (
+        '<html><body style="font-family: sans-serif; color: #1a1a1a;">'
+        f"<h2>Hi {candidate_name},</h2>"
+        f"{body_middle}"
+        "<p>We wish you all the best in your career.</p>"
+        "<br/><p>— The int.ai Team</p>"
+        "</body></html>"
+    )
+
+    response = resend.Emails.send(
+        {
+            "from": FROM_ADDRESS,
+            "to": [candidate_email],
+            "subject": subject,
+            "html": html,
+        }
+    )
+    return response["id"]
+
+
 def send_status_update(
     candidate_email: str,
     candidate_name: str,
