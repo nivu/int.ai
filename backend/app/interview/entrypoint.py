@@ -85,30 +85,45 @@ async def entrypoint(ctx: JobContext) -> None:
     application_id: str = session_record.get("application_id", "")
     template_id: str = session_record.get("template_id", "")
 
-    # Fetch resume markdown from the application record
+    # Fetch application → resume_data (for resume) and hiring_post (for JD)
+    resume_markdown = ""
+    jd_text = ""
     try:
         application = get_record("applications", application_id)
-        resume_markdown: str = application.get("resume_markdown", "")
+        hiring_post_id = application.get("hiring_post_id", "")
+
+        # Get resume markdown from resume_data table
+        from app.services.supabase import supabase
+        rd_response = supabase.table("resume_data").select("raw_markdown").eq(
+            "application_id", application_id
+        ).limit(1).execute()
+        if rd_response.data:
+            resume_markdown = rd_response.data[0].get("raw_markdown", "")
+
+        # Get job description from hiring_posts
+        if hiring_post_id:
+            hiring_post = get_record("hiring_posts", hiring_post_id)
+            jd_text = hiring_post.get("description", "")
     except Exception:
         logger.exception(
-            "Failed to fetch application %s for session %s. Disconnecting.",
-            application_id,
+            "Failed to fetch application context for session %s.",
             session_id,
         )
-        return
 
-    # Fetch job description and template config
+    # Fetch template config
+    template_config: dict = {}
     try:
         template = get_record("interview_templates", template_id)
-        jd_text: str = template.get("jd_text", "")
-        template_config: dict = template.get("config", {})
+        template_config = {
+            "max_questions": template.get("max_questions", 10),
+            "max_duration_seconds": template.get("max_duration_minutes", 45) * 60,
+        }
     except Exception:
         logger.exception(
-            "Failed to fetch template %s for session %s. Disconnecting.",
+            "Failed to fetch template %s for session %s.",
             template_id,
             session_id,
         )
-        return
 
     if not resume_markdown:
         logger.warning("Resume markdown is empty for session %s", session_id)
@@ -140,6 +155,13 @@ async def entrypoint(ctx: JobContext) -> None:
     question_count = -1
     was_speaking = False
 
+    async def _publish_data(data: bytes) -> None:
+        """Publish data to room participants (awaits the coroutine)."""
+        try:
+            await ctx.room.local_participant.publish_data(data, reliable=True)
+        except Exception:
+            logger.debug("Failed to publish data message")
+
     @session.on("agent_state_changed")
     def _on_agent_state_changed(event: AgentStateChangedEvent) -> None:
         nonlocal question_count, was_speaking
@@ -160,19 +182,21 @@ async def entrypoint(ctx: JobContext) -> None:
                 "type": "question_progress",
                 "current": question_count,
             }).encode()
-            try:
-                ctx.room.local_participant.publish_data(msg, reliable=True)
-            except Exception:
-                logger.debug("Failed to publish question progress data")
+            asyncio.create_task(_publish_data(msg))
 
             # Check if we should end the session
             if question_count >= controller.max_questions:
-                end_msg = json.dumps({"type": "session_end"}).encode()
-                try:
-                    ctx.room.local_participant.publish_data(end_msg, reliable=True)
-                except Exception:
-                    pass
-                controller.finish()
+                async def _end_session() -> None:
+                    end_msg = json.dumps({"type": "session_end"}).encode()
+                    await _publish_data(end_msg)
+                    await session.say(
+                        "That was the last question. Thank you for your time and "
+                        "thoughtful responses. The interview is now complete.",
+                        allow_interruptions=False,
+                    )
+                    controller.finish()
+                    shutdown_event.set()
+                asyncio.create_task(_end_session())
 
     # Send initial greeting so the candidate doesn't have to speak first
     await session.say(
@@ -184,6 +208,23 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Keep the entrypoint alive until the session closes
     shutdown_event = asyncio.Event()
+
+    # Duration timeout — end interview after max_duration_seconds
+    async def _duration_watchdog() -> None:
+        await asyncio.sleep(controller.max_duration_seconds)
+        if not controller.ended:
+            logger.info("Interview duration limit reached for session=%s", session_id)
+            end_msg = json.dumps({"type": "session_end"}).encode()
+            await _publish_data(end_msg)
+            await session.say(
+                "We've reached the end of our time. Thank you for your responses. "
+                "The interview is now complete.",
+                allow_interruptions=False,
+            )
+            controller.finish()
+            shutdown_event.set()
+
+    asyncio.create_task(_duration_watchdog())
 
     @session.on("close")
     def _on_close(event: CloseEvent) -> None:

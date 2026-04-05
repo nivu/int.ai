@@ -99,8 +99,10 @@ class _SessionController:
                 {
                     "status": "completed",
                     "duration_seconds": duration,
-                    "question_count": self.question_count,
-                    "conversation_history": self.question_gen.conversation_history,
+                    "questions_asked": self.question_count,
+                    "ended_at": __import__("datetime").datetime.now(
+                        __import__("datetime").timezone.utc
+                    ).isoformat(),
                 },
             )
         except Exception:
