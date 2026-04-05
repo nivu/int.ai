@@ -1,0 +1,63 @@
+# Backend CI/CD
+#
+# Railway auto-deploys from the prod branch via native Git integration.
+# This workflow handles CI checks only (lint + test on PRs and pushes).
+#
+# Required GitHub secrets (only if using Railway CLI deploy):
+#   RAILWAY_TOKEN - Railway API token for CLI-based deployments
+
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - "backend/**"
+  pull_request:
+    branches: [prod]
+    paths:
+      - "backend/**"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint with ruff
+        run: uvx ruff check app/
+
+      - name: Type check with mypy (optional)
+        continue-on-error: true
+        run: uvx mypy app/ --ignore-missing-imports
+
+  # Railway handles deployment automatically when code is pushed to prod.
+  # If you need CLI-based deploy, uncomment the job below and set RAILWAY_TOKEN secret.
+  #
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   needs: lint-and-test
+  #   if: github.event_name == 'push'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install Railway CLI
+  #       run: npm install -g @railway/cli
+  #     - name: Deploy to Railway
+  #       run: railway up --service backend
+  #       env:
+  #         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

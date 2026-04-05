@@ -1,0 +1,59 @@
+# Frontend CI
+#
+# Runs lint and typecheck on every push/PR targeting the prod branch.
+# Netlify handles deployment automatically via its git integration —
+# connect the repo in the Netlify dashboard and set:
+#   - Base directory: frontend
+#   - Build command: pnpm build
+#   - Publish directory: frontend/.next
+#   - Branch to deploy: prod
+#
+# Required GitHub secrets (only if you add a deploy step later):
+#   NETLIFY_AUTH_TOKEN — personal access token from Netlify
+#   NETLIFY_SITE_ID   — site ID from Netlify site settings
+
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - "frontend/**"
+  pull_request:
+    branches: [prod]
+    paths:
+      - "frontend/**"
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck (via build)
+        run: pnpm build
