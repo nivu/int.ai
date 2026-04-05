@@ -40,9 +40,9 @@ def evaluate_interview_task(self, session_id: str) -> dict:
             new_status = status_map.get(recommendation, "interviewed")
             update_record("applications", application_id, {"status": new_status})
             logger.info(
-                "Application %s decision set to '%s' based on interview evaluation",
+                "Application %s status set to '%s' based on interview evaluation",
                 application_id,
-                decision,
+                new_status,
             )
 
         return {
