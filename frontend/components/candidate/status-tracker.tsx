@@ -11,7 +11,15 @@ const STEPS = [
   { key: "outcome", label: "Outcome" },
 ] as const;
 
-export type ApplicationStatus = (typeof STEPS)[number]["key"];
+export type ApplicationStatus =
+  | (typeof STEPS)[number]["key"]
+  | "screened"
+  | "interview_sent"
+  | "interviewed"
+  | "shortlisted"
+  | "rejected"
+  | "hired"
+  | "screening_error";
 
 interface StatusTrackerProps {
   currentStatus: string;
