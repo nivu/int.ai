@@ -1,7 +1,7 @@
 """LiveKit Agent factory for AI voice interviews.
 
 Creates a fully configured Agent + AgentSession that conducts technical
-interviews using Deepgram STT/TTS and Gemini as the backing LLM.
+interviews using Deepgram STT/TTS and OpenAI GPT-4o mini as the backing LLM.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from livekit.agents import Agent, AgentSession, ChatContext
-from livekit.plugins import deepgram, google
+from livekit.plugins import deepgram, openai
 
 from app.config import settings
 from app.interview.question_gen import QuestionGenerator
@@ -173,10 +173,10 @@ def create_interview_agent(
         api_key=settings.DEEPGRAM_API_KEY.get_secret_value(),
     )
 
-    # -- LLM: Gemini ---------------------------------------------------
-    llm_plugin = google.LLM(
-        model="gemini-2.0-flash",
-        api_key=settings.GEMINI_API_KEY.get_secret_value(),
+    # -- LLM: OpenAI GPT-4o mini --------------------------------------
+    llm_plugin = openai.LLM(
+        model="gpt-4o-mini",
+        api_key=settings.OPENAI_API_KEY.get_secret_value(),
     )
 
     # -- Build the Agent (defines persona and instructions) ------------

@@ -32,7 +32,7 @@ def prewarm(proc: JobProcess) -> None:
     """Import heavy modules eagerly so the first job starts faster."""
     # Pre-import plugins so their native libs are loaded before any room join.
     import livekit.plugins.deepgram  # noqa: F401
-    import livekit.plugins.google  # noqa: F401
+    import livekit.plugins.openai  # noqa: F401
 
     logger.info("Agent process prewarmed (pid=%s)", proc)
 

@@ -9,18 +9,18 @@ dependencies = [
     "celery[redis]",
     "redis",
     "pydantic-settings",
-    "google-genai",
     "sentence-transformers",
     "pdfplumber",
     "python-docx",
     "livekit-agents",
     "livekit-plugins-deepgram",
-    "livekit-plugins-google",
+    "livekit-plugins-openai>=1.5.1",
     "livekit-plugins-silero",
     "resend",
     "supabase",
     "python-dotenv",
     "email-validator>=2.3.0",
+    "openai>=2.30.0",
 ]
 
 [build-system]

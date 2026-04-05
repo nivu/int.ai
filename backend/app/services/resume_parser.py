@@ -9,7 +9,7 @@ import time
 
 import docx
 import pdfplumber
-from google import genai
+from openai import OpenAI
 
 from app.config import settings
 
@@ -61,34 +61,34 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
 
 
 def parse_resume(raw_text: str) -> dict:
-    """Send raw resume text to Google Gemini and return structured JSON."""
-    client = genai.Client(api_key=settings.GEMINI_API_KEY.get_secret_value())
+    """Send raw resume text to OpenAI and return structured JSON."""
+    client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
 
     start = time.time()
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=raw_text,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=PARSE_SYSTEM_PROMPT,
-            response_mime_type="application/json",
-            temperature=0.1,
-        ),
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": PARSE_SYSTEM_PROMPT},
+            {"role": "user", "content": raw_text},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
     )
     latency = time.time() - start
 
-    usage = response.usage_metadata
+    usage = response.usage
     logger.info(
-        "parse_resume: latency=%.2fs prompt_tokens=%s candidates_tokens=%s",
+        "parse_resume: latency=%.2fs prompt_tokens=%s completion_tokens=%s",
         latency,
-        getattr(usage, "prompt_token_count", None),
-        getattr(usage, "candidates_token_count", None),
+        usage.prompt_tokens if usage else None,
+        usage.completion_tokens if usage else None,
     )
 
-    return json.loads(response.text)
+    return json.loads(response.choices[0].message.content)
 
 
 def process_resume(file_bytes: bytes, filename: str) -> dict:
-    """Determine file format, extract text, parse with Gemini, and return structured data."""
+    """Determine file format, extract text, parse with OpenAI, and return structured data."""
     extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
 
     if extension == "pdf":
@@ -104,3 +104,4 @@ def process_resume(file_bytes: bytes, filename: str) -> dict:
     parsed = parse_resume(raw_text)
     parsed["raw_text"] = raw_text
     return parsed
+

@@ -1,4 +1,4 @@
-"""Scoring service — compute resume-to-JD match scores via embeddings and Gemini."""
+"""Scoring service — compute resume-to-JD match scores via embeddings and OpenAI."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 import time
 
-from google import genai
+from openai import OpenAI
 
 from app.config import settings
 from app.services.embeddings import compute_similarity, embed_text
@@ -17,31 +17,31 @@ logger = logging.getLogger("int.ai")
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _gemini_json_request(system_prompt: str, user_content: str) -> dict:
-    """Send a request to Gemini requesting JSON output and return parsed dict."""
-    client = genai.Client(api_key=settings.GEMINI_API_KEY.get_secret_value())
+def _llm_json_request(system_prompt: str, user_content: str) -> dict:
+    """Send a request to OpenAI requesting JSON output and return parsed dict."""
+    client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
 
     start = time.time()
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_content,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            response_mime_type="application/json",
-            temperature=0.1,
-        ),
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
     )
     latency = time.time() - start
 
-    usage = response.usage_metadata
+    usage = response.usage
     logger.info(
-        "Gemini scoring call: latency=%.2fs prompt_tokens=%s candidates_tokens=%s",
+        "OpenAI scoring call: latency=%.2fs prompt_tokens=%s completion_tokens=%s",
         latency,
-        getattr(usage, "prompt_token_count", None),
-        getattr(usage, "candidates_token_count", None),
+        usage.prompt_tokens if usage else None,
+        usage.completion_tokens if usage else None,
     )
 
-    return json.loads(response.text)
+    return json.loads(response.choices[0].message.content)
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def score_skill_match(
     resume_text: str,
     jd_skills: list[str],
 ) -> tuple[float, dict]:
-    """Evaluate each required skill against resume evidence using Gemini.
+    """Evaluate each required skill against resume evidence using OpenAI.
 
     Returns (aggregate_score, details_dict).
     """
@@ -99,7 +99,7 @@ def score_skill_match(
         f"## Required Skills\n{json.dumps(jd_skills)}\n\n"
         f"## Resume\n{resume_text}"
     )
-    details = _gemini_json_request(SKILL_MATCH_SYSTEM_PROMPT, user_content)
+    details = _llm_json_request(SKILL_MATCH_SYSTEM_PROMPT, user_content)
 
     skills_list = details.get("skills", [])
     if not skills_list:
@@ -133,12 +133,12 @@ def score_experience_match(
     resume_text: str,
     jd_text: str,
 ) -> tuple[float, dict]:
-    """Evaluate experience alignment using Gemini. Returns (score, details)."""
+    """Evaluate experience alignment using OpenAI. Returns (score, details)."""
     user_content = (
         f"## Job Description\n{jd_text}\n\n"
         f"## Resume\n{resume_text}"
     )
-    details = _gemini_json_request(EXPERIENCE_MATCH_SYSTEM_PROMPT, user_content)
+    details = _llm_json_request(EXPERIENCE_MATCH_SYSTEM_PROMPT, user_content)
     score = float(details.get("overall", 0.0))
     return max(0.0, min(1.0, score)), details
 
@@ -165,12 +165,12 @@ def score_culture_match(
     resume_text: str,
     jd_text: str,
 ) -> tuple[float, dict]:
-    """Infer culture-fit signals using Gemini. Returns (score, details)."""
+    """Infer culture-fit signals using OpenAI. Returns (score, details)."""
     user_content = (
         f"## Job Description\n{jd_text}\n\n"
         f"## Resume\n{resume_text}"
     )
-    details = _gemini_json_request(CULTURE_MATCH_SYSTEM_PROMPT, user_content)
+    details = _llm_json_request(CULTURE_MATCH_SYSTEM_PROMPT, user_content)
     score = float(details.get("overall", 0.0))
     return max(0.0, min(1.0, score)), details
 

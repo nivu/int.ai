@@ -23,9 +23,9 @@ def log_ai_call(
     Parameters
     ----------
     provider : str
-        AI provider name (e.g. "google", "openai").
+        AI provider name (e.g. "openai").
     model : str
-        Model identifier (e.g. "gemini-2.0-flash").
+        Model identifier (e.g. "gpt-4o-mini").
     operation : str
         High-level operation name (e.g. "parse_resume", "score_skills").
     input_tokens : int
