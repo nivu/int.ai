@@ -53,6 +53,232 @@ int.ai replaces manual resume filtering and phone screens with a fully automated
 
 ---
 
+## Complete Hiring Lifecycle
+
+```
+ ADMIN                           SYSTEM (Automated)                    CANDIDATE
+ ─────                           ──────────────────                    ─────────
+
+ ┌──────────────┐
+ │ Create Job   │
+ │ Post         │
+ │ + Select     │
+ │   Interview  │
+ │   Template   │
+ │ + Set Skills │
+ │ + Set        │
+ │   Threshold  │
+ │ + Publish    │
+ └──────┬───────┘
+        │
+        │  generates shareable link
+        │  /apply/{slug}
+        │                                                     ┌──────────────┐
+        └─────────────────────────────────────────────────────► Candidate    │
+                                                              │ opens link   │
+                                                              │ fills form   │
+                                                              │ uploads      │
+                                                              │ resume       │
+                                                              └──────┬───────┘
+                                                                     │
+                                              ┌──────────────────────┘
+                                              │
+                                              ▼
+                                 ┌────────────────────────┐
+                                 │  Application Created    │
+                                 │  Status: "applied"      │
+                                 └────────────┬───────────┘
+                                              │
+                                              ▼
+                                 ┌────────────────────────┐
+                                 │  📧 Confirmation Email  │
+                                 │  "We received your      │
+                                 │   application"          │
+                                 └────────────┬───────────┘
+                                              │
+                                              ▼
+                              ┌───────────────────────────────┐
+                              │  🤖 AI Resume Screening        │
+                              │  (Celery background task)      │
+                              │                                │
+                              │  1. Download resume from       │
+                              │     Supabase Storage           │
+                              │  2. Parse PDF/DOCX → markdown  │
+                              │  3. Embedding similarity        │
+                              │     (text-embedding-3-small)   │
+                              │  4. Skill match (GPT-4o mini)  │
+                              │  5. Experience match            │
+                              │  6. Culture match               │
+                              │  7. Weighted aggregate score    │
+                              │  8. Store scores + embedding    │
+                              └───────────────┬───────────────┘
+                                              │
+                              ┌───────────────┼───────────────┐
+                              │               │               │
+                              ▼               ▼               ▼
+                     Score ≥ threshold   In between    Score < threshold
+                              │               │               │
+                              ▼               ▼               ▼
+                    ┌─────────────┐  ┌──────────────┐  ┌──────────────┐
+                    │ Status:     │  │ Status:      │  │ Status:      │
+                    │ "interview_ │  │ "screened"   │  │ "rejected"   │
+                    │  sent"      │  │ (manual      │  │              │
+                    │             │  │  review)     │  │              │
+                    └──────┬──────┘  └──────────────┘  └──────┬───────┘
+                           │                                   │
+                           ▼                                   ▼
+              ┌────────────────────────┐          ┌────────────────────────┐
+              │ Interview session      │          │ 📧 Rejection Email     │
+              │ created (pending)      │          │ "We've decided to move │
+              │ + deadline set         │          │  forward with others"  │
+              └────────────┬───────────┘          └────────────────────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │ 📧 Interview Invite    │
+              │ "You've been invited   │                      ┌──────────────┐
+              │  to an AI interview"   │─────────────────────► Candidate     │
+              │  + deadline            │                      │ receives     │
+              └────────────────────────┘                      │ email        │
+                                                              └──────┬───────┘
+                                                                     │
+                                                                     ▼
+                                                              ┌──────────────┐
+                                                              │ Logs into    │
+                                                              │ Portal (OTP) │
+                                                              │              │
+                                                              │ Sees status: │
+                                                              │ "Interview   │
+                                                              │  Invited"    │
+                                                              │              │
+                                                              │ Clicks       │
+                                                              │ [Start       │
+                                                              │  Interview]  │
+                                                              └──────┬───────┘
+                                                                     │
+                                              ┌──────────────────────┘
+                                              │
+                                              ▼
+                              ┌───────────────────────────────┐
+                              │  🎙️ AI Voice Interview         │
+                              │                                │
+                              │  LiveKit Room created           │
+                              │  AI Agent auto-joins            │
+                              │                                │
+                              │  Agent: "Hi! Welcome to your   │
+                              │   interview. Are you ready?"   │
+                              │                                │
+                              │  ┌──────────────────────────┐  │
+                              │  │  Q&A Loop (5 questions)   │  │
+                              │  │                           │  │
+                              │  │  Agent asks question      │  │
+                              │  │       ▼                   │  │
+                              │  │  Candidate answers        │  │
+                              │  │       ▼                   │  │
+                              │  │  Agent acknowledges +     │  │
+                              │  │  asks follow-up or next   │  │
+                              │  │       ▼                   │  │
+                              │  │  Q&A pair stored in DB    │  │
+                              │  │  Progress sent to UI      │  │
+                              │  │       ▼                   │  │
+                              │  │  Repeat until max Qs      │  │
+                              │  │  or max duration          │  │
+                              │  └──────────────────────────┘  │
+                              │                                │
+                              │  Agent: "Thank you for your    │
+                              │   time. The interview is now   │
+                              │   complete."                   │
+                              │                                │
+                              │  Session status → "completed"  │
+                              └───────────────┬───────────────┘
+                                              │
+                                              ▼
+                              ┌───────────────────────────────┐
+                              │  🤖 AI Interview Evaluation    │
+                              │  (Celery background task)      │
+                              │                                │
+                              │  For each Q&A pair:            │
+                              │  - Technical accuracy  (0-10)  │
+                              │  - Depth of understanding      │
+                              │  - Communication clarity       │
+                              │  - Relevance to JD             │
+                              │                                │
+                              │  Compute weighted grade (0-100)│
+                              │  Generate AI summary           │
+                              │  Determine recommendation      │
+                              └───────────────┬───────────────┘
+                                              │
+                              ┌───────────────┼───────────────┐
+                              │               │               │
+                              ▼               ▼               ▼
+                       Grade ≥ 70       60 ≤ Grade < 70   Grade < 60
+                              │               │               │
+                              ▼               ▼               ▼
+                    ┌─────────────┐  ┌──────────────┐  ┌──────────────┐
+                    │ Status:     │  │ Status:      │  │ Status:      │
+                    │"shortlisted"│  │"interviewed" │  │ "rejected"   │
+                    │             │  │ (under       │  │              │
+                    │             │  │  review)     │  │              │
+                    └──────┬──────┘  └──────┬───────┘  └──────┬───────┘
+                           │               │               │
+                           ▼               ▼               ▼
+              ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐
+              │📧 "Great    │  │📧 "Your app  │  │📧 "After careful     │
+              │ news! You've│  │ is under     │  │ review, we've decided│
+              │ been        │  │ review"      │  │ to move forward with │
+              │ shortlisted"│  │              │  │ other candidates"    │
+              └─────────────┘  └──────────────┘  └──────────────────────┘
+                           │               │
+                           ▼               ▼
+              ┌────────────────────────────────────┐
+              │  Interview Report Created           │
+              │                                     │
+              │  - Overall grade: 75/100            │
+              │  - Recommendation: advance          │
+              │  - Strengths: [...]                 │
+              │  - Concerns: [...]                  │
+              │  - AI narrative summary             │
+              │  - Shareable link (7-day expiry)    │
+              └──────────────────┬─────────────────┘
+                                 │
+ ┌───────────────────────────────┘
+ │
+ ▼
+ ┌──────────────────┐
+ │ Admin Dashboard   │
+ │                   │
+ │ - View all scores │
+ │ - Compare         │
+ │   candidates      │
+ │ - Read AI reports │
+ │ - Make final      │
+ │   hiring decision │
+ └──────────────────┘
+```
+
+### Application Status Transitions
+
+```
+applied → screened → interview_sent → in_progress → completed → shortlisted
+                                                              → interviewed (borderline)
+                                                              → rejected
+         → rejected (screening fail)
+         → screening_error (on failure)
+```
+
+### Emails Sent at Each Stage
+
+| Stage | Trigger | Email Subject | Recipient |
+|-------|---------|--------------|-----------|
+| Application | Form submitted | "Application Received — {Job}" | Candidate |
+| Screening Pass | Score ≥ threshold | "Interview Invitation — {Job}" | Candidate |
+| Screening Fail | Score < threshold | "Application Update — {Job}" | Candidate |
+| Interview → Advance | Grade ≥ 70 | "Great News — {Job}" | Candidate |
+| Interview → Borderline | 60 ≤ Grade < 70 | "Interview Update — {Job}" | Candidate |
+| Interview → Reject | Grade < 60 | "Interview Update — {Job}" | Candidate |
+
+---
+
 ## End-to-End Flow
 
 ### 1. Job Post Creation
