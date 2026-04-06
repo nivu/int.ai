@@ -114,6 +114,136 @@ Admins view results in the dashboard:
 
 ---
 
+## Interview Voice Agent — Detailed Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CANDIDATE BROWSER                            │
+│                                                                     │
+│  /interview                        /interview/session               │
+│  ┌─────────────────────┐          ┌──────────────────────────────┐  │
+│  │  Interview Checklist │  click   │  LiveKit Room                │  │
+│  │                      │ "Ready"  │  ┌────────────────────────┐  │  │
+│  │  - Browser check     │────────►│  │  BarVisualizer          │  │  │
+│  │  - Mic permission    │          │  │  (voice-reactive UI)    │  │  │
+│  │  - Duration & Qs     │          │  │                        │  │  │
+│  │                      │          │  │  Question 3 of 5       │  │  │
+│  │                      │          │  │  ⏱ 02:45               │  │  │
+│  │                      │          │  │                        │  │  │
+│  │                      │          │  │  [End Interview]       │  │  │
+│  │                      │          │  └────────────────────────┘  │  │
+│  └─────────────────────┘          └──────────────────────────────┘  │
+└──────────────────────────────────────┬──────────────────────────────┘
+                                       │ WebRTC (audio)
+                                       │
+                        ┌──────────────▼──────────────┐
+                        │       LiveKit Cloud          │
+                        │      (Singapore region)      │
+                        │                              │
+                        │   Room: interview-{uuid}     │
+                        │   Participants:               │
+                        │   - candidate-{uuid}         │
+                        │   - agent (AI interviewer)   │
+                        └──────────────┬──────────────┘
+                                       │ dispatches
+                                       │
+                        ┌──────────────▼──────────────┐
+                        │    LiveKit Agent (Railway)    │
+                        │                              │
+                        │  ┌─────────┐  ┌──────────┐  │
+                        │  │Deepgram │  │ Deepgram │  │
+                        │  │  STT    │  │   TTS    │  │
+                        │  │(Nova-2) │  │          │  │
+                        │  └────┬────┘  └────▲─────┘  │
+                        │       │            │         │
+                        │  ┌────▼────────────┴─────┐  │
+                        │  │   OpenAI GPT-4o mini   │  │
+                        │  │                        │  │
+                        │  │  System: AI interviewer │  │
+                        │  │  Context: resume + JD   │  │
+                        │  │  Style: warm, probing   │  │
+                        │  └────────────────────────┘  │
+                        │                              │
+                        │  Events:                     │
+                        │  - conversation_item_added   │
+                        │    → store Q&A to Supabase   │
+                        │  - user_state: speaking→     │
+                        │    listening → count question │
+                        │    → send progress via data  │
+                        │      channel to frontend     │
+                        │  - max questions reached     │
+                        │    → farewell + session_end  │
+                        │  - duration timeout          │
+                        │    → farewell + session_end  │
+                        └─────────────────────────────┘
+```
+
+### Voice Pipeline Detail
+
+```
+Candidate speaks
+    │
+    ▼
+Deepgram STT (Nova-2, Indian English, streaming)
+    │ text transcript
+    ▼
+OpenAI GPT-4o mini (streaming tokens)
+    │ System prompt: professional interviewer persona
+    │ Context: candidate resume (markdown) + job description
+    │ Conversation history: all prior Q&A
+    │ Behavior: acknowledge answer → ask next question
+    │           or probe deeper if answer was vague
+    ▼
+Deepgram TTS (streaming audio)
+    │
+    ▼
+Candidate hears AI response (~1-2s latency)
+```
+
+### Interview Session Lifecycle
+
+```
+pending ──► in_progress ──► completed
+   │                           │
+   │  candidate clicks         │  max questions OR
+   │  "I'm Ready"              │  max duration OR
+   │  → create LiveKit room    │  candidate clicks "End"
+   │  → agent auto-joins       │  → agent says farewell
+   │  → greeting sent          │  → Q&A scoring triggered
+   │                           │  → evaluation report created
+   │                           │  → outcome email sent
+   │                           │
+   └──► expired                └──► evaluation complete
+        (deadline passed)           → application status updated
+```
+
+### Data Captured During Interview
+
+| Data | Storage | When |
+|------|---------|------|
+| Each Q&A pair (question + answer text) | `interview_qa` table | Real-time, as each exchange completes |
+| Question count | Data channel → frontend | Real-time, after each user answer |
+| Session duration | `interview_sessions.duration_seconds` | On session end |
+| Session status transitions | `interview_sessions.status` | pending → in_progress → completed |
+| Consent timestamp | `interview_sessions.consent_given_at` | When candidate clicks "Ready" |
+
+### Interview Templates
+
+Templates define the interview parameters:
+
+| Field | Example | Description |
+|-------|---------|-------------|
+| `name` | AI/ML Engineer | Template name |
+| `max_questions` | 5 | Interview stops after N answered questions |
+| `max_duration_minutes` | 5 | Interview stops after N minutes |
+| `foundational_ratio` | 0.4 | 40% foundational / 60% project-based questions |
+| `must_ask_topics` | ["deep learning", "model deployment"] | Topics the agent must cover |
+| `scoring_weights` | {"technical": 0.35, ...} | Weights for post-interview evaluation |
+
+Templates are linked to hiring posts. When a candidate passes screening, an interview session is automatically created using the linked template.
+
+---
+
 ## Tech Stack
 
 | Component | Technology |
