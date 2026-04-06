@@ -174,7 +174,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                     logger.exception("Failed to send interview invitation for application=%s", application_id)
 
         elif overall_score < rejection_threshold:
-            update_record("applications", application_id, {"status": "rejected"})
+            update_record("applications", application_id, {"status": "resume_rejected"})
 
             if candidate_email:
                 try:

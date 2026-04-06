@@ -17,7 +17,7 @@ export default async function CandidateDetailPage({
   // Fetch the candidate (application record) with related hiring post
   const { data: application, error } = await supabase
     .from("applications")
-    .select("*, hiring_posts(*)")
+    .select("*, hiring_posts(*), candidate:candidates(*)")
     .eq("id", id)
     .single();
 

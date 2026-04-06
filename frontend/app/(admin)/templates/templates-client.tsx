@@ -69,6 +69,12 @@ export default function TemplatesClient({
     async (data: TemplateFormData) => {
       setLoading(true);
       try {
+        const dbWeights = {
+            technical: data.scoring_weights.technical / 100,
+            depth: data.scoring_weights.depth / 100,
+            communication: data.scoring_weights.communication / 100,
+            relevance: data.scoring_weights.relevance / 100,
+          };
         const { data: created, error } = await supabase
           .from("interview_templates")
           .insert({
@@ -76,10 +82,10 @@ export default function TemplatesClient({
             max_questions: data.max_questions,
             max_duration_minutes: data.max_duration_minutes,
             foundational_ratio: data.foundational_ratio,
-            scoring_weights: data.scoring_weights,
+            scoring_weights: dbWeights,
             must_ask_topics: data.must_ask_topics,
             is_preset: data.preset !== "none" && data.preset !== "custom",
-            preset: data.preset === "none" ? null : data.preset,
+            preset_role: data.preset === "none" ? null : data.preset,
             org_id: orgId,
           })
           .select()
@@ -105,6 +111,12 @@ export default function TemplatesClient({
       if (!editTemplate) return;
       setLoading(true);
       try {
+        const dbWeights = {
+            technical: data.scoring_weights.technical / 100,
+            depth: data.scoring_weights.depth / 100,
+            communication: data.scoring_weights.communication / 100,
+            relevance: data.scoring_weights.relevance / 100,
+          };
         const { data: updated, error } = await supabase
           .from("interview_templates")
           .update({
@@ -112,10 +124,10 @@ export default function TemplatesClient({
             max_questions: data.max_questions,
             max_duration_minutes: data.max_duration_minutes,
             foundational_ratio: data.foundational_ratio,
-            scoring_weights: data.scoring_weights,
+            scoring_weights: dbWeights,
             must_ask_topics: data.must_ask_topics,
             is_preset: data.preset !== "none" && data.preset !== "custom",
-            preset: data.preset === "none" ? null : data.preset,
+            preset_role: data.preset === "none" ? null : data.preset,
           })
           .eq("id", editTemplate.id)
           .select()

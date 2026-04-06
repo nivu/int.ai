@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import {
   useReactTable,
   getCoreRowModel,
@@ -21,7 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUpDown, Search } from "lucide-react";
+import { ArrowUpDown, Search, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { backendFetch } from "@/lib/api/backend";
 import CompareButton from "@/components/admin/compare-button";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +37,8 @@ export type ApplicationStatus =
   | "interview_sent"
   | "interviewed"
   | "shortlisted"
-  | "rejected";
+  | "resume_rejected"
+  | "interview_rejected";
 
 export interface ApplicationRecord {
   id: string;
@@ -100,8 +104,12 @@ const statusConfig: Record<
     className:
       "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
   },
-  rejected: {
-    label: "Rejected",
+  resume_rejected: {
+    label: "Resume Rejected",
+    className: "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
+  },
+  interview_rejected: {
+    label: "Interview Rejected",
     className: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
   },
 };
@@ -173,13 +181,18 @@ function buildColumns(
       enableSorting: false,
       size: 40,
     },
-    // Name
+    // Name (links to candidate detail page)
     {
       id: "name",
       accessorFn: (row) => row.candidate?.full_name ?? "",
       header: ({ column }) => <SortableHeader label="Name" column={column} />,
-      cell: ({ getValue }) => (
-        <span className="font-medium">{getValue<string>()}</span>
+      cell: ({ getValue, row }) => (
+        <Link
+          href={`/candidates/${row.original.id}`}
+          className="font-medium text-primary hover:underline"
+        >
+          {getValue<string>()}
+        </Link>
       ),
     },
     // Email
@@ -391,13 +404,96 @@ export default function CandidateTable({
 
   const selectedCount = Object.keys(rowSelection).length;
 
-  // ---- bulk action handlers (stubs) ----
+  const [bulkLoading, setBulkLoading] = useState(false);
 
-  function handleBulkAction(action: "send_interview" | "reject" | "shortlist") {
+  async function handleBulkAction(action: "send_interview" | "reject" | "shortlist") {
     const selectedIds = Object.keys(rowSelection);
-    // TODO: wire to API
-    console.log(`Bulk ${action} for:`, selectedIds);
-    setRowSelection({});
+    if (selectedIds.length === 0) return;
+
+    setBulkLoading(true);
+    const supabase = createClient();
+
+    try {
+      if (action === "send_interview") {
+        // Update status to interview_sent and create interview sessions
+        for (const appId of selectedIds) {
+          const app = data.find((d) => d.id === appId);
+          if (!app) continue;
+
+          // Update application status
+          await supabase
+            .from("applications")
+            .update({
+              status: "interview_sent",
+              interview_invited_at: new Date().toISOString(),
+              interview_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            })
+            .eq("id", appId);
+
+          // Get the hiring post's interview template
+          const { data: hp } = await supabase
+            .from("hiring_posts")
+            .select("interview_template_id")
+            .eq("id", app.hiring_post_id)
+            .single();
+
+          if (hp?.interview_template_id) {
+            // Create interview session
+            await supabase.from("interview_sessions").insert({
+              application_id: appId,
+              template_id: hp.interview_template_id,
+              status: "pending",
+              deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            });
+          }
+
+          // Send interview invitation email (best-effort)
+          try {
+            const { data: candidate } = await supabase
+              .from("candidates")
+              .select("email, full_name")
+              .eq("id", app.candidate_id)
+              .single();
+
+            if (candidate?.email) {
+              await backendFetch("/api/v1/email/send", {
+                method: "POST",
+                body: JSON.stringify({
+                  template: "interview_invitation",
+                  to: candidate.email,
+                  data: {
+                    candidate_name: candidate.full_name,
+                    job_title: app.hiring_post?.title ?? "the position",
+                    interview_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+                    portal_url: `${window.location.origin}/portal`,
+                  },
+                }),
+              });
+            }
+          } catch {
+            // Email failure shouldn't block the action
+          }
+        }
+      } else if (action === "reject") {
+        await supabase
+          .from("applications")
+          .update({ status: "rejected" })
+          .in("id", selectedIds);
+      } else if (action === "shortlist") {
+        await supabase
+          .from("applications")
+          .update({ status: "shortlisted" })
+          .in("id", selectedIds);
+      }
+
+      setRowSelection({});
+      // Reload page to reflect changes
+      window.location.reload();
+    } catch (err) {
+      console.error(`Bulk ${action} failed:`, err);
+    } finally {
+      setBulkLoading(false);
+    }
   }
 
   // ---- render ----
@@ -426,7 +522,8 @@ export default function CandidateTable({
             <SelectItem value="interview_sent">Interview Sent</SelectItem>
             <SelectItem value="interviewed">Interviewed</SelectItem>
             <SelectItem value="shortlisted">Shortlisted</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="resume_rejected">Resume Rejected</SelectItem>
+            <SelectItem value="interview_rejected">Interview Rejected</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -441,14 +538,17 @@ export default function CandidateTable({
             <Button
               size="sm"
               variant="outline"
+              disabled={bulkLoading}
               onClick={() => handleBulkAction("send_interview")}
             >
+              {bulkLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
               Send Interview
             </Button>
             <Button
               size="sm"
               variant="outline"
               className="text-red-600 hover:text-red-700"
+              disabled={bulkLoading}
               onClick={() => handleBulkAction("reject")}
             >
               Reject
@@ -457,6 +557,7 @@ export default function CandidateTable({
               size="sm"
               variant="outline"
               className="text-green-600 hover:text-green-700"
+              disabled={bulkLoading}
               onClick={() => handleBulkAction("shortlist")}
             >
               Advance to Shortlist

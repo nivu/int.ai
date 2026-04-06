@@ -77,7 +77,7 @@ export default function CandidateDetailClient({
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold">
-          {resumeData?.name || application.candidate_name || "Candidate"}
+          {resumeData?.parsed_name || application.candidate?.full_name || "Candidate"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {hiringPost?.title ?? "Unknown position"} &mdash;{" "}
@@ -103,19 +103,19 @@ export default function CandidateDetailClient({
                     <CardTitle>Contact</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-1 text-sm">
-                    {resumeData.email && <p>Email: {resumeData.email}</p>}
-                    {resumeData.name && <p>Name: {resumeData.name}</p>}
+                    {(resumeData.parsed_email || resumeData.email) && <p>Email: {resumeData.parsed_email || resumeData.email}</p>}
+                    {(resumeData.parsed_name || resumeData.name) && <p>Name: {resumeData.parsed_name || resumeData.name}</p>}
                   </CardContent>
                 </Card>
 
-                {resumeData.summary && (
+                {(resumeData.parsed_summary || resumeData.summary) && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Summary</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm leading-relaxed">
-                        {resumeData.summary}
+                        {resumeData.parsed_summary || resumeData.summary}
                       </p>
                     </CardContent>
                   </Card>
@@ -127,14 +127,14 @@ export default function CandidateDetailClient({
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-1.5">
-                      {(resumeData.skills ?? []).map(
+                      {(resumeData.parsed_skills ?? resumeData.skills ?? []).map(
                         (skill: string, i: number) => (
                           <Badge key={i} variant="secondary">
                             {skill}
                           </Badge>
                         )
                       )}
-                      {(resumeData.skills ?? []).length === 0 && (
+                      {(resumeData.parsed_skills ?? resumeData.skills ?? []).length === 0 && (
                         <p className="text-sm text-muted-foreground">
                           No skills parsed
                         </p>
@@ -143,13 +143,13 @@ export default function CandidateDetailClient({
                   </CardContent>
                 </Card>
 
-                {(resumeData.experience ?? []).length > 0 && (
+                {(resumeData.parsed_experience ?? resumeData.experience ?? []).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Experience</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {resumeData.experience.map((exp: any, i: number) => (
+                      {(resumeData.parsed_experience ?? resumeData.experience ?? []).map((exp: any, i: number) => (
                         <div key={i} className="text-sm">
                           <p className="font-medium">
                             {exp.title ?? exp.role ?? "Role"}{" "}
@@ -173,13 +173,13 @@ export default function CandidateDetailClient({
                   </Card>
                 )}
 
-                {(resumeData.education ?? []).length > 0 && (
+                {(resumeData.parsed_education ?? resumeData.education ?? []).length > 0 && (
                   <Card>
                     <CardHeader>
                       <CardTitle>Education</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      {resumeData.education.map((edu: any, i: number) => (
+                      {(resumeData.parsed_education ?? resumeData.education ?? []).map((edu: any, i: number) => (
                         <div key={i} className="text-sm">
                           <p className="font-medium">
                             {edu.degree ?? edu.institution ?? "Education"}
@@ -204,44 +204,32 @@ export default function CandidateDetailClient({
             )}
 
             {/* Screening scores */}
-            {application.screening_scores && (
+            {application.overall_score != null && (
               <Card>
                 <CardHeader>
                   <CardTitle>Screening Scores</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                    {Object.entries(application.screening_scores as Record<string, unknown>)
-                      .filter(
-                        ([key]) =>
-                          !key.endsWith("_details") && key !== "overall"
-                      )
-                      .map(([key, value]) => (
-                        <div key={key} className="space-y-0.5">
-                          <p className="text-xs text-muted-foreground">
-                            {key.replace(/_/g, " ")}
-                          </p>
-                          <p className="font-medium tabular-nums">
-                            {typeof value === "number"
-                              ? `${(value * 100).toFixed(0)}%`
-                              : String(value)}
-                          </p>
-                        </div>
-                      ))}
-                    {application.screening_scores.overall != null && (
-                      <div className="space-y-0.5">
-                        <p className="text-xs text-muted-foreground">
-                          Overall
-                        </p>
-                        <p className="font-bold tabular-nums">
-                          {(
-                            (application.screening_scores.overall as number) *
-                            100
-                          ).toFixed(0)}
-                          %
+                  <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+                    {[
+                      ["Embedding", application.embedding_score],
+                      ["Skill Match", application.skill_match_score],
+                      ["Experience", application.experience_match_score],
+                      ["Culture", application.culture_match_score],
+                    ].map(([label, value]) => (
+                      <div key={label as string} className="space-y-0.5">
+                        <p className="text-xs text-muted-foreground">{label as string}</p>
+                        <p className="font-medium tabular-nums">
+                          {value != null ? `${Math.round((value as number) * 100)}%` : "—"}
                         </p>
                       </div>
-                    )}
+                    ))}
+                    <div className="space-y-0.5">
+                      <p className="text-xs text-muted-foreground">Overall</p>
+                      <p className="font-bold tabular-nums">
+                        {Math.round(application.overall_score * 100)}%
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

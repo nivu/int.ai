@@ -18,6 +18,8 @@ export type ApplicationStatus =
   | "interviewed"
   | "shortlisted"
   | "rejected"
+  | "resume_rejected"
+  | "interview_rejected"
   | "hired"
   | "screening_error";
 
@@ -37,6 +39,8 @@ const STATUS_TO_STEP: Record<string, string> = {
   shortlisted: "decision_pending",
   decision_pending: "decision_pending",
   rejected: "outcome",
+  resume_rejected: "outcome",
+  interview_rejected: "outcome",
   hired: "outcome",
   outcome: "outcome",
 };

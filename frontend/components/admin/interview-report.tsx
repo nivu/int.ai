@@ -36,7 +36,7 @@ interface InterviewReport {
 interface QAItem {
   id: string;
   question_text: string;
-  answer_transcript: string;
+  answer_text: string;
   technical_accuracy: number;
   depth_of_understanding: number;
   communication_clarity: number;
@@ -124,14 +124,14 @@ function QAAccordionItem({ qa, index }: { qa: QAItem; index: number }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50"
+        className="flex w-full items-start gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50"
       >
         {open ? (
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          <ChevronDown className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         ) : (
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         )}
-        <span className="flex-1">
+        <span className="flex-1 whitespace-normal break-words">
           Q{index + 1}: {qa.question_text}
         </span>
       </button>
@@ -139,9 +139,11 @@ function QAAccordionItem({ qa, index }: { qa: QAItem; index: number }) {
         <div className="space-y-4 px-4 pb-4 pt-1">
           <div>
             <p className="mb-1 text-xs font-medium text-muted-foreground">
-              Answer Transcript
+              Answer
             </p>
-            <p className="text-sm leading-relaxed">{qa.answer_transcript}</p>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {qa.answer_text || "No answer recorded"}
+            </p>
           </div>
           <div className="space-y-2">
             <ScoreBar

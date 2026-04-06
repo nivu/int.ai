@@ -35,7 +35,7 @@ def evaluate_interview_task(self, session_id: str) -> dict:
             status_map = {
                 "advance": "shortlisted",
                 "borderline": "interviewed",
-                "reject": "rejected",
+                "reject": "interview_rejected",
             }
             new_status = status_map.get(recommendation, "interviewed")
             update_record("applications", application_id, {"status": new_status})

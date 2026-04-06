@@ -123,14 +123,28 @@ export default function TemplateForm({
   onSubmit,
   loading,
 }: TemplateFormProps) {
-  const [form, setForm] = useState<TemplateFormData>({
-    ...defaultFormData,
-    ...initialData,
-    scoring_weights: {
+  const [form, setForm] = useState<TemplateFormData>(() => {
+    // Scoring weights are stored as decimals (0.35) in DB but displayed as integers (35)
+    const rawWeights = {
       ...defaultFormData.scoring_weights,
       ...initialData?.scoring_weights,
-    },
-    must_ask_topics: initialData?.must_ask_topics ?? defaultFormData.must_ask_topics,
+    };
+    const needsConversion = Object.values(rawWeights).every((v) => v <= 1);
+    const scoring_weights = needsConversion
+      ? {
+          technical: Math.round(rawWeights.technical * 100),
+          depth: Math.round(rawWeights.depth * 100),
+          communication: Math.round(rawWeights.communication * 100),
+          relevance: Math.round(rawWeights.relevance * 100),
+        }
+      : rawWeights;
+
+    return {
+      ...defaultFormData,
+      ...initialData,
+      scoring_weights,
+      must_ask_topics: initialData?.must_ask_topics ?? defaultFormData.must_ask_topics,
+    };
   });
 
   const [topicInput, setTopicInput] = useState("");
@@ -278,28 +292,28 @@ export default function TemplateForm({
               <Input
                 id="max-questions"
                 type="number"
-                min={5}
-                max={15}
+                min={1}
+                max={30}
                 required
                 value={form.max_questions}
                 onChange={(e) => update("max_questions", Number(e.target.value))}
               />
-              <p className="text-xs text-muted-foreground">Between 5 and 15</p>
+              <p className="text-xs text-muted-foreground">Between 1 and 30</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="max-duration">Max Duration (minutes)</Label>
               <Input
                 id="max-duration"
                 type="number"
-                min={15}
-                max={60}
+                min={1}
+                max={120}
                 required
                 value={form.max_duration_minutes}
                 onChange={(e) =>
                   update("max_duration_minutes", Number(e.target.value))
                 }
               />
-              <p className="text-xs text-muted-foreground">Between 15 and 60</p>
+              <p className="text-xs text-muted-foreground">Between 1 and 120</p>
             </div>
           </div>
         </CardContent>
