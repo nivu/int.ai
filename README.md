@@ -1,4 +1,4 @@
-# int.ai
+# int.ai - prod
 
 AI-powered hiring automation platform that automates resume screening and conducts first-round voice interviews with an intelligent AI agent.
 
