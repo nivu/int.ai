@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,32 +27,22 @@ function LoginForm() {
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkingAuth, setCheckingAuth] = useState(true);
 
   const supabase = createClient();
-
-  // Redirect if already logged in
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        router.replace(isCandidate ? "/portal" : "/dashboard");
-      } else {
-        setCheckingAuth(false);
-      }
-    });
-  }, []);
 
   async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    console.log("login result:", { data, error });
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
+    console.log("pushing to /dashboard");
     router.push("/dashboard");
   }
 
@@ -90,14 +80,6 @@ function LoginForm() {
       return;
     }
     router.push("/portal");
-  }
-
-  if (checkingAuth) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
-      </div>
-    );
   }
 
   return (

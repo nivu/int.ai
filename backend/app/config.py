@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: SecretStr
     REDIS_URL: str = "redis://localhost:6379/0"
     RESEND_API_KEY: SecretStr
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "https://intai.nunnarilabs.com"
 
     model_config = {
         "env_file": ".env",

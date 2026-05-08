@@ -28,7 +28,7 @@ export default function EditTemplateClient({
     foundational_ratio: template.foundational_ratio,
     scoring_weights: template.scoring_weights,
     must_ask_topics: template.must_ask_topics,
-    preset: (template.preset as TemplateFormData["preset"]) ?? "none",
+    preset: (template.preset_role as TemplateFormData["preset"]) ?? "none",
   };
 
   const handleSubmit = useCallback(

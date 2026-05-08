@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAnonClient } from "@/lib/supabase/anon";
 import { ApplyPageClient } from "./client";
 
 interface PageProps {
@@ -7,7 +7,7 @@ interface PageProps {
 
 export default async function ApplyPage({ params }: PageProps) {
   const { slug } = await params;
-  const supabase = await createClient();
+  const supabase = createAnonClient();
 
   const { data: hiringPost, error } = await supabase
     .from("hiring_posts")

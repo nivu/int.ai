@@ -24,6 +24,17 @@ export default async function JobDetailPage({
     notFound();
   }
 
+  // Fetch linked template settings
+  let templateSettings: { max_questions: number; max_duration_minutes: number } | null = null;
+  if (post.interview_template_id) {
+    const { data: tmpl } = await supabase
+      .from("interview_templates")
+      .select("max_questions, max_duration_minutes")
+      .eq("id", post.interview_template_id)
+      .single();
+    templateSettings = tmpl ?? null;
+  }
+
   // Application count
   const { count: applicationCount } = await supabase
     .from("applications")
@@ -34,6 +45,7 @@ export default async function JobDetailPage({
     <JobDetailClient
       post={post}
       applicationCount={applicationCount ?? 0}
+      templateSettings={templateSettings}
     />
   );
 }

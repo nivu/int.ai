@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import JobCandidateManagementSection from "@/components/admin/job-candidate-management-section";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,9 +66,11 @@ const statusVariant: Record<
 export default function JobDetailClient({
   post,
   applicationCount,
+  templateSettings,
 }: {
   post: HiringPost;
   applicationCount: number;
+  templateSettings: { max_questions: number; max_duration_minutes: number } | null;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -111,6 +114,44 @@ export default function JobDetailClient({
     try {
       const isPublish = data.publish_now;
 
+      // Determine template_id: update existing or create new
+      let templateId: string | null = (post as Record<string, unknown>).interview_template_id as string | null ?? null;
+      if (templateId) {
+        // Update the linked template in place
+        const { error: tmplError } = await supabase
+          .from("interview_templates")
+          .update({
+            max_questions: data.max_questions,
+            max_duration_minutes: data.max_duration_minutes,
+          })
+          .eq("id", templateId);
+        if (tmplError) throw tmplError;
+      } else {
+        // No template linked — need org_id to create one
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: member } = await supabase
+            .from("team_members")
+            .select("org_id")
+            .eq("user_id", user.id)
+            .single();
+          if (member) {
+            const { data: tmpl, error: tmplError } = await supabase
+              .from("interview_templates")
+              .insert({
+                org_id: member.org_id,
+                name: `${data.title} Interview`,
+                max_questions: data.max_questions,
+                max_duration_minutes: data.max_duration_minutes,
+              })
+              .select("id")
+              .single();
+            if (tmplError) throw tmplError;
+            templateId = tmpl.id;
+          }
+        }
+      }
+
       const { error } = await supabase
         .from("hiring_posts")
         .update({
@@ -125,7 +166,7 @@ export default function JobDetailClient({
           education_requirements: data.education_requirements,
           scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
-          interview_template_id: data.interview_template_id || null,
+          interview_template_id: templateId,
           status: isPublish ? "published" : post.status,
           published_at:
             isPublish && !post.published_at
@@ -154,15 +195,30 @@ export default function JobDetailClient({
   };
 
   // ---- shareable link ----
+  // Uses NEXT_PUBLIC_APP_URL when set (production domain) so the link
+  // sent to candidates points to the real app, not the recruiter's local origin.
+  const appOrigin =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
 
-  const shareUrl =
-    typeof window !== "undefined" && post.share_slug
-      ? `${window.location.origin}/apply/${post.share_slug}`
-      : null;
+  const shareUrl = post.share_slug ? `${appOrigin}/apply/${post.share_slug}` : null;
 
   const copyLink = async () => {
     if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      // Fallback for when the document is not focused (e.g. inside a modal/iframe)
+      const el = document.createElement("textarea");
+      el.value = shareUrl;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.focus();
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -181,6 +237,8 @@ export default function JobDetailClient({
     education_requirements: post.education_requirements,
     scoring_weights: post.scoring_weights,
     screening_threshold: post.screening_threshold,
+    max_questions: templateSettings?.max_questions ?? 10,
+    max_duration_minutes: templateSettings?.max_duration_minutes ?? 45,
     publish_now: post.status === "published",
     scheduled_publish_at: post.scheduled_publish_at ?? "",
     closes_at: post.closes_at ?? "",
@@ -358,6 +416,8 @@ export default function JobDetailClient({
           </div>
         </CardContent>
       </Card>
+
+      <JobCandidateManagementSection jobId={post.id} />
     </div>
   );
 }

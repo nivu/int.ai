@@ -1,5 +1,6 @@
 "use client";
 
+import { useTheme } from "next-themes";
 import {
   BarChart,
   Bar,
@@ -93,11 +94,32 @@ function scoreVal(v: number | null | undefined): number {
   return v ?? 0;
 }
 
+function useChartTheme() {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  return {
+    tickFill: isDark ? "#a1a1aa" : "#71717a",
+    gridStroke: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.1)",
+    tooltipStyle: {
+      contentStyle: {
+        backgroundColor: isDark ? "#1c1c1e" : "#ffffff",
+        border: `1px solid ${isDark ? "#3f3f46" : "#e4e4e7"}`,
+        color: isDark ? "#f4f4f5" : "#18181b",
+        borderRadius: "6px",
+        fontSize: "12px",
+      },
+      labelStyle: { color: isDark ? "#a1a1aa" : "#71717a" },
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 1. Score Overview Bar Chart
 // ---------------------------------------------------------------------------
 
 function ScoreOverview({ candidates }: { candidates: ComparisonCandidate[] }) {
+  const { tickFill, gridStroke, tooltipStyle } = useChartTheme();
+
   const metrics = [
     { key: "overall_score", label: "Overall" },
     { key: "skill_match_score", label: "Skill Match" },
@@ -122,11 +144,11 @@ function ScoreOverview({ candidates }: { candidates: ComparisonCandidate[] }) {
       <CardContent>
         <ResponsiveContainer width="100%" height={320}>
           <BarChart data={data} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="metric" tick={{ fontSize: 12 }} />
-            <YAxis domain={[0, 100]} />
-            <Tooltip />
-            <Legend />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+            <XAxis dataKey="metric" tick={{ fontSize: 12, fill: tickFill }} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: tickFill }} />
+            <Tooltip {...tooltipStyle} />
+            <Legend wrapperStyle={{ fontSize: 12, color: tickFill }} />
             {candidates.map((c, i) => (
               <Bar
                 key={c.id}
@@ -152,6 +174,8 @@ function InterviewRadar({
 }: {
   candidates: ComparisonCandidate[];
 }) {
+  const { tickFill, tooltipStyle } = useChartTheme();
+
   // Only include candidates that have interview report data
   const withReports = candidates.filter(
     (c) => c.interview_reports && c.interview_reports.length > 0
@@ -166,7 +190,6 @@ function InterviewRadar({
     { key: "cultural_fit_score", label: "Cultural Fit" },
   ] as const;
 
-  // Try to import ScoreRadar from shared; fall back to inline RadarChart
   const data = dimensions.map((d) => {
     const entry: Record<string, string | number> = { dimension: d.label };
     candidates.forEach((c, i) => {
@@ -186,9 +209,9 @@ function InterviewRadar({
       <CardContent>
         <ResponsiveContainer width="100%" height={360}>
           <RadarChart data={data} cx="50%" cy="50%" outerRadius="75%">
-            <PolarGrid />
-            <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 12 }} />
-            <PolarRadiusAxis angle={30} domain={[0, 100]} />
+            <PolarGrid stroke={tickFill} strokeOpacity={0.3} />
+            <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 12, fill: tickFill }} />
+            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10, fill: tickFill }} />
             {candidates.map((c, i) => (
               <Radar
                 key={c.id}
@@ -199,8 +222,8 @@ function InterviewRadar({
                 fillOpacity={0.15}
               />
             ))}
-            <Legend />
-            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 12, color: tickFill }} />
+            <Tooltip {...tooltipStyle} />
           </RadarChart>
         </ResponsiveContainer>
       </CardContent>
@@ -258,7 +281,7 @@ function SkillsOverlap({
                   return (
                     <td key={c.id} className="px-3 py-1.5 text-center">
                       {has ? (
-                        <Check className="inline-block size-4 text-green-600" />
+                        <Check className="inline-block size-4 text-green-600 dark:text-green-400" />
                       ) : (
                         <Minus className="inline-block size-4 text-muted-foreground/40" />
                       )}
@@ -283,6 +306,8 @@ function ExperienceTimeline({
 }: {
   candidates: ComparisonCandidate[];
 }) {
+  const { tickFill, gridStroke, tooltipStyle } = useChartTheme();
+
   // Build horizontal bar data: one entry per role per candidate
   const barData: {
     label: string;
@@ -328,18 +353,20 @@ function ExperienceTimeline({
       <CardContent>
         <ResponsiveContainer width="100%" height={Math.max(barData.length * 36, 200)}>
           <BarChart data={chartData} layout="vertical" barSize={20}>
-            <CartesianGrid strokeDasharray="3 3" />
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
             <XAxis
               type="number"
-              label={{ value: "Years", position: "insideBottom", offset: -5 }}
+              tick={{ fontSize: 12, fill: tickFill }}
+              label={{ value: "Years", position: "insideBottom", offset: -5, fill: tickFill }}
             />
             <YAxis
               type="category"
               dataKey="name"
               width={220}
-              tick={{ fontSize: 11 }}
+              tick={{ fontSize: 11, fill: tickFill }}
             />
             <Tooltip
+              {...tooltipStyle}
               formatter={(value, _name, entry) => {
                 const payload = (entry as unknown as { payload?: { candidateName?: string } }).payload;
                 return [`${value} years`, payload?.candidateName ?? ""];

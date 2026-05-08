@@ -1,5 +1,6 @@
 "use client";
 
+import { useTheme } from "next-themes";
 import {
   Legend,
   PolarAngleAxis,
@@ -37,6 +38,11 @@ const COLORS = [
 ];
 
 export default function ScoreRadar({ data }: ScoreRadarProps) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const tickFill = isDark ? "#a1a1aa" : "#71717a";
+  const gridStroke = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)";
+
   // Reshape data for recharts: one entry per dimension
   const chartData = DIMENSIONS.map((dim) => {
     const entry: Record<string, string | number> = { dimension: dim.key };
@@ -51,15 +57,15 @@ export default function ScoreRadar({ data }: ScoreRadarProps) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
-        <PolarGrid stroke="hsl(var(--border))" />
+        <PolarGrid stroke={gridStroke} />
         <PolarAngleAxis
           dataKey="dimension"
-          tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 12, fill: tickFill }}
         />
         <PolarRadiusAxis
           angle={90}
           domain={[0, 10]}
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 10, fill: tickFill }}
           tickCount={6}
         />
         {candidateNames.map((name, i) => (

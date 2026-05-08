@@ -1,21 +1,19 @@
-"""LiveKit agent entrypoint for AI voice interviews.
-
-Run as:
-    python -m app.interview.entrypoint
-    livekit-agents start app.interview.entrypoint
-"""
+"""LiveKit agent entrypoint for AI voice interviews."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import time
 
 from livekit.agents import (
-    AgentSession,
+    AgentStateChangedEvent,
     CloseEvent,
     JobContext,
     JobProcess,
+    UserInputTranscribedEvent,
+    UserStateChangedEvent,
     WorkerOptions,
     cli,
 )
@@ -25,91 +23,75 @@ from app.interview.agent import create_interview_agent
 from app.services.supabase import get_record, insert_record
 
 logger = logging.getLogger("int.ai")
+_FINAL_TTS_DRAIN_SECONDS = 1.0
+_NO_RESPONSE_SECONDS = 15
 
-
-# ---------------------------------------------------------------------------
-# Prewarm — called once when a worker process starts
-# ---------------------------------------------------------------------------
 
 def prewarm(proc: JobProcess) -> None:
-    """Import heavy modules eagerly so the first job starts faster."""
-    # Pre-import plugins so their native libs are loaded before any room join.
     import livekit.plugins.deepgram  # noqa: F401
     import livekit.plugins.openai  # noqa: F401
-
+    from livekit.plugins import silero as _silero
+    _silero.VAD.load()
     logger.info("Agent process prewarmed (pid=%s)", proc)
 
 
-# ---------------------------------------------------------------------------
-# Entrypoint — called for each room/job the agent is dispatched to
-# ---------------------------------------------------------------------------
+def _extract_text(msg: object) -> str:
+    """Extract plain text from a ChatMessage regardless of content structure."""
+    tc = getattr(msg, "text_content", None)
+    if isinstance(tc, str) and tc.strip():
+        return tc.strip()
+    raw = getattr(msg, "content", None) or []
+    parts: list[str] = []
+    for c in raw:
+        if isinstance(c, str):
+            parts.append(c)
+        elif hasattr(c, "text") and isinstance(c.text, str):
+            parts.append(c.text)
+    return " ".join(parts).strip()
+
 
 async def entrypoint(ctx: JobContext) -> None:
-    """Main entrypoint invoked when the agent joins a LiveKit room.
-
-    The room name is expected to follow the format ``interview-{session_id}``.
-    Session context (resume, JD, template config) is fetched from Supabase
-    and used to configure the voice interview agent.
-    """
     await ctx.connect()
 
     room_name: str = ctx.room.name
     logger.info("Agent joined room: %s", room_name)
 
-    # ------------------------------------------------------------------
-    # Extract session_id from room name (format: "interview-{session_id}")
-    # ------------------------------------------------------------------
     if not room_name.startswith("interview-"):
-        logger.error(
-            "Room name %r does not match expected format 'interview-{session_id}'. "
-            "Disconnecting.",
-            room_name,
-        )
+        logger.error("Room name %r does not match expected format.", room_name)
         return
 
     session_id = room_name[len("interview-"):]
 
     # ------------------------------------------------------------------
-    # Fetch session context from Supabase
+    # Fetch session context
     # ------------------------------------------------------------------
     try:
         session_record = get_record("interview_sessions", session_id)
     except Exception:
-        logger.exception(
-            "Failed to fetch session record for session_id=%s. Disconnecting.",
-            session_id,
-        )
+        logger.exception("Failed to fetch session record=%s", session_id)
         return
 
     application_id: str = session_record.get("application_id", "")
     template_id: str = session_record.get("template_id", "")
 
-    # Fetch application → resume_data (for resume) and hiring_post (for JD)
     resume_markdown = ""
     jd_text = ""
     try:
         application = get_record("applications", application_id)
         hiring_post_id = application.get("hiring_post_id", "")
 
-        # Get resume markdown from resume_data table
         from app.services.supabase import supabase
-        rd_response = supabase.table("resume_data").select("raw_markdown").eq(
-            "application_id", application_id
-        ).limit(1).execute()
-        if rd_response.data:
-            resume_markdown = rd_response.data[0].get("raw_markdown", "")
+        rd = supabase.table("resume_data").select("raw_markdown").eq(
+            "application_id", application_id).limit(1).execute()
+        if rd.data:
+            resume_markdown = rd.data[0].get("raw_markdown", "")
 
-        # Get job description from hiring_posts
         if hiring_post_id:
             hiring_post = get_record("hiring_posts", hiring_post_id)
             jd_text = hiring_post.get("description", "")
     except Exception:
-        logger.exception(
-            "Failed to fetch application context for session %s.",
-            session_id,
-        )
+        logger.exception("Failed to fetch application context for session=%s", session_id)
 
-    # Fetch template config
     template_config: dict = {}
     try:
         template = get_record("interview_templates", template_id)
@@ -118,20 +100,10 @@ async def entrypoint(ctx: JobContext) -> None:
             "max_duration_seconds": template.get("max_duration_minutes", 45) * 60,
         }
     except Exception:
-        logger.exception(
-            "Failed to fetch template %s for session %s.",
-            template_id,
-            session_id,
-        )
-
-    if not resume_markdown:
-        logger.warning("Resume markdown is empty for session %s", session_id)
-
-    if not jd_text:
-        logger.warning("Job description is empty for session %s", session_id)
+        logger.exception("Failed to fetch template=%s session=%s", template_id, session_id)
 
     # ------------------------------------------------------------------
-    # Create and start the interview agent
+    # Create and start agent
     # ------------------------------------------------------------------
     agent, session, controller = create_interview_agent(
         session_id=session_id,
@@ -139,137 +111,635 @@ async def entrypoint(ctx: JobContext) -> None:
         jd_text=jd_text,
         template_config=template_config,
     )
-
-    logger.info(
-        "Starting interview agent for session=%s (max_questions=%d, max_duration=%ds)",
-        session_id,
-        controller.max_questions,
-        controller.max_duration_seconds,
-    )
-
+    logger.info("Starting agent session=%s max_questions=%d", session_id, controller.max_questions)
     await session.start(agent=agent, room=ctx.room)
 
+    shutdown_event = asyncio.Event()
+
     # ------------------------------------------------------------------
-    # Record Q&A pairs to interview_qa table for post-interview evaluation
+    # Helpers
     # ------------------------------------------------------------------
-    last_agent_text: str = ""
-    qa_number = 0
-
-    @session.on("conversation_item_added")
-    def _on_conversation_item(event: object) -> None:
-        nonlocal last_agent_text, qa_number
-
-        item = getattr(event, "item", None)
-        if item is None:
-            return
-
-        msg = getattr(item, "message", item)
-        role = getattr(msg, "role", None)
-        content = getattr(msg, "content", None)
-
-        if not role or not content:
-            return
-
-        # Handle content that might be a list
-        if isinstance(content, list):
-            content = " ".join(str(c) for c in content)
-        content = str(content).strip()
-        if not content:
-            return
-
-        if role == "assistant":
-            last_agent_text = content
-        elif role == "user" and last_agent_text:
-            # User responded to an agent question — store the Q&A pair
-            qa_number += 1
-            try:
-                insert_record("interview_qa", {
-                    "session_id": session_id,
-                    "question_number": qa_number,
-                    "question_type": "foundational",
-                    "question_text": last_agent_text,
-                    "answer_text": content,
-                })
-                logger.info("Stored Q&A #%d for session=%s", qa_number, session_id)
-            except Exception:
-                logger.exception("Failed to store Q&A #%d for session=%s", qa_number, session_id)
-            last_agent_text = ""
-
-    # Track question count based on completed user speaking turns.
-    # Each time the user finishes speaking = 1 answered question.
-    question_count = 0
-
     async def _publish_data(data: bytes) -> None:
-        """Publish data to room participants (awaits the coroutine)."""
         try:
             await ctx.room.local_participant.publish_data(data, reliable=True)
         except Exception:
-            logger.debug("Failed to publish data message")
+            logger.exception("Failed to publish data session=%s", session_id)
 
-    @session.on("user_state_changed")
-    def _on_user_state_changed(event: object) -> None:
-        nonlocal question_count
-
-        new_state = getattr(event, "new_state", None)
-        old_state = getattr(event, "old_state", None)
-
-        # User just finished speaking (was speaking → now listening)
-        if old_state == "speaking" and new_state == "listening":
-            question_count += 1
-
-            # Send progress update to frontend via data channel
-            msg = json.dumps({
-                "type": "question_progress",
-                "current": min(question_count, controller.max_questions),
-            }).encode()
-            asyncio.create_task(_publish_data(msg))
-
-            logger.info(
-                "Question %d/%d answered for session=%s",
-                question_count, controller.max_questions, session_id,
+    async def _send_termination_email(reason: str) -> None:
+        try:
+            from app.services.supabase import supabase as _sb
+            from app.services import email as _email
+            _app = _sb.table("applications").select("candidate_id,hiring_post_id").eq(
+                "id", application_id).single().execute().data
+            _cand = _sb.table("candidates").select("email,full_name").eq(
+                "id", _app["candidate_id"]).single().execute().data
+            _post = _sb.table("hiring_posts").select("title").eq(
+                "id", _app["hiring_post_id"]).single().execute().data
+            _email.send_interview_terminated(
+                candidate_email=_cand["email"],
+                candidate_name=_cand["full_name"],
+                job_title=_post["title"],
+                reason=reason,
             )
+        except Exception:
+            logger.exception("Failed to send termination email session=%s", session_id)
 
-            # Check if we should end the session (let the agent respond
-            # to the last answer before ending)
-            if question_count >= controller.max_questions:
-                async def _end_after_response() -> None:
-                    # Wait for the agent to finish its response to the last answer
-                    await asyncio.sleep(15)
-                    if not controller.ended:
-                        end_msg = json.dumps({"type": "session_end"}).encode()
-                        await _publish_data(end_msg)
-                        await session.say(
-                            "That was the last question. Thank you for your time and "
-                            "thoughtful responses. The interview is now complete.",
-                            allow_interruptions=False,
-                        )
-                        controller.finish()
-                        shutdown_event.set()
-                asyncio.create_task(_end_after_response())
+    # ------------------------------------------------------------------
+    # Conversation state
+    # ------------------------------------------------------------------
+    _last_agent_text: list[str] = [""]
+    _qa_number: list[int] = [0]
 
-    # Send initial greeting so the candidate doesn't have to speak first
-    await session.say(
-        "Hi there! Welcome to your interview for the position. "
-        "I'm your AI interviewer today. Let's get started. "
-        "Are you ready for the first question?",
-        allow_interruptions=True,
+    _interview_phase: list[str] = ["greeting"]   # "greeting" | "interview"
+    _last_progress_sent: list[int] = [0]
+    _repeat_used: list[bool] = [False]
+    _awaiting_close: list[bool] = [False]
+
+    # Accumulates Deepgram final-transcript segments across multiple STT events.
+    # Consumed and cleared when _advance_question() fires.
+    _current_answer_parts: list[list[str]] = [[]]
+
+    _agent_state: list[str] = ["initializing"]
+    _user_state: list[str] = ["listening"]
+
+    # ------------------------------------------------------------------
+    # Timer state
+    # ------------------------------------------------------------------
+    _timer_remaining: list[float] = [float(_NO_RESPONSE_SECONDS)]
+    _timer_seg_start: list[float | None] = [None]
+    _no_response_task: list[asyncio.Task | None] = [None]
+    _advancing: list[bool] = [False]
+
+    # Grace period: after user stops speaking, wait this long before deciding
+    # what to do (resume timer or advance based on word count).
+    _SPEAK_GRACE_SECONDS = 3.0
+    _grace_task: list[asyncio.Task | None] = [None]
+
+    # Silence thresholds per word-count tier (used after grace period).
+    # If word count < 6: resume timer (not enough to be a real answer).
+    # Otherwise: wait tier-appropriate silence then advance as answered=True.
+    _SILENCE_TIERS = [
+        (6,  float("inf"), None),   # 0–5 words  → resume timer
+        (16, 6,            4.0),    # 6–15 words → 4 s silence
+        (31, 16,           3.0),    # 16–30 words → 3 s silence
+        (float("inf"), 31, 2.0),    # 31+ words  → 2 s silence
+    ]
+
+    _REPEAT_PHRASES = (
+        "repeat", "say that again", "say it again", "come again",
+        "what was the question", "pardon", "say again", "repeat that",
+        "can you repeat", "could you repeat",
     )
 
-    # Keep the entrypoint alive until the session closes
-    shutdown_event = asyncio.Event()
+    def _get_word_count() -> int:
+        return sum(len(p.split()) for p in _current_answer_parts[0])
 
-    # Duration timeout — end interview after max_duration_seconds
+    def _silence_needed(word_count: int) -> float | None:
+        """Seconds of silence needed to advance, or None to resume timer."""
+        if word_count < 6:
+            return None
+        elif word_count < 16:
+            return 4.0
+        elif word_count < 31:
+            return 3.0
+        else:
+            return 2.0
+
+    def _is_repeat_request(text: str) -> bool:
+        return len(text.split()) <= 15 and any(p in text.lower() for p in _REPEAT_PHRASES)
+
+    # ------------------------------------------------------------------
+    # Timer management
+    # ------------------------------------------------------------------
+    def _cancel_no_response_task(reason: str = "") -> None:
+        t = _no_response_task[0]
+        if t and not t.done():
+            t.cancel()
+            if reason:
+                logger.debug("Timer cancelled (%s) session=%s", reason, session_id)
+        _no_response_task[0] = None
+        _timer_seg_start[0] = None
+
+    def _cancel_grace_task() -> None:
+        t = _grace_task[0]
+        if t and not t.done():
+            t.cancel()
+        _grace_task[0] = None
+
+    def _arm_timer() -> None:
+        """Arm the no-response countdown from _timer_remaining[0].
+
+        Only fires when:
+        - In interview phase
+        - Not closing
+        - A question is active (_last_agent_text set)
+        - No timer already running
+        """
+        if (
+            _interview_phase[0] != "interview"
+            or _awaiting_close[0]
+            or controller.ended
+            or _no_response_task[0] is not None
+            or not _last_agent_text[0]
+        ):
+            return
+
+        remaining = _timer_remaining[0]
+        _timer_seg_start[0] = time.monotonic()
+
+        async def _timeout() -> None:
+            try:
+                await asyncio.sleep(remaining)
+            except asyncio.CancelledError:
+                return
+            if controller.ended or _awaiting_close[0] or _interview_phase[0] != "interview":
+                return
+            if _user_state[0] == "speaking":
+                return
+            _no_response_task[0] = None
+            _timer_seg_start[0] = None
+            logger.warning("No-response timer expired session=%s", session_id)
+            # If candidate said anything at all treat as answered so we don't
+            # rudely say "I didn't hear a response" when they did speak.
+            has_words = _get_word_count() > 0
+            await _advance_question(answered=has_words)
+
+        _no_response_task[0] = asyncio.create_task(_timeout())
+        logger.info("Timer armed %.1fs session=%s", remaining, session_id)
+        asyncio.create_task(_publish_data(
+            json.dumps({"type": "timer_started", "remaining": int(remaining)}).encode()
+        ))
+
+    # ------------------------------------------------------------------
+    # Central advance — ONLY place questions are incremented
+    # ------------------------------------------------------------------
+    async def _advance_question(answered: bool) -> None:
+        if controller.ended or _awaiting_close[0] or _advancing[0]:
+            return
+        _advancing[0] = True
+        try:
+            await _do_advance(answered)
+        finally:
+            _advancing[0] = False
+
+    async def _do_advance(answered: bool) -> None:
+        if not _last_agent_text[0]:
+            logger.debug("No active question — skipping advance session=%s", session_id)
+            return
+
+        _cancel_no_response_task("advance")
+        _cancel_grace_task()
+        _timer_remaining[0] = float(_NO_RESPONSE_SECONDS)
+
+        answer_text = " ".join(_current_answer_parts[0]).strip()
+        _current_answer_parts[0] = []
+        _repeat_used[0] = False
+
+        _qa_number[0] += 1
+        controller.question_count = _qa_number[0]
+        current_q = _qa_number[0]
+        question_text = _last_agent_text[0]
+        _last_agent_text[0] = ""
+
+        logger.info(
+            "Advancing Q#%d/%d answered=%s words=%d session=%s",
+            current_q, controller.max_questions, answered, len(answer_text.split()), session_id,
+        )
+
+        # Persist Q&A
+        if question_text:
+            try:
+                insert_record("interview_qa", {
+                    "session_id": session_id,
+                    "question_number": current_q,
+                    "question_type": "foundational",
+                    "question_text": question_text,
+                    "answer_text": answer_text,
+                })
+            except Exception:
+                logger.exception("Failed to store Q&A #%d session=%s", current_q, session_id)
+
+            if answered and answer_text:
+                controller.question_gen.conversation_history.append({
+                    "question": question_text,
+                    "answer": answer_text,
+                    "topic": "interview",
+                })
+            else:
+                controller.question_gen.conversation_history.append({
+                    "question": question_text,
+                    "answer": "[no answer — candidate did not respond]",
+                    "topic": "skipped",
+                })
+
+        # Last question → close
+        if current_q >= controller.max_questions:
+            await _close_interview()
+            return
+
+        next_q = current_q + 1
+        _last_progress_sent[0] = next_q
+        await _publish_data(
+            json.dumps({"type": "question_progress", "current": next_q}).encode()
+        )
+
+        if not answered:
+            # ----------------------------------------------------------------
+            # Candidate was completely silent.
+            # Bypass the LLM entirely — fetch the next question directly from
+            # the question generator and speak it as a single hardcoded line.
+            # This prevents the LLM from generating a spurious acknowledgement
+            # like "Fantastic explanation!" when the candidate said nothing.
+            # ----------------------------------------------------------------
+            try:
+                q_data = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    controller.question_gen.generate_next_question,
+                )
+                next_q_text = q_data.get("question_text", "").strip()
+            except Exception:
+                logger.exception("Failed to generate Q#%d session=%s", next_q, session_id)
+                next_q_text = ""
+
+            move_on = "I didn't hear a response, so let's move on."
+            full_text = f"{move_on} {next_q_text}" if next_q_text else move_on
+            await session.say(full_text, allow_interruptions=False)
+
+            # Set the active question text so the timer guard works on the
+            # next agent_state_changed → listening event.
+            _last_agent_text[0] = next_q_text if next_q_text else ""
+            logger.info("Skipped Q#%d, spoke Q#%d directly session=%s", current_q, next_q, session_id)
+            # Timer will be armed by _on_agent_state_changed when agent → listening
+            return
+
+        # ----------------------------------------------------------------
+        # Candidate answered — use LLM to acknowledge + ask next question.
+        # ----------------------------------------------------------------
+        try:
+            controller.explicit_generate_count += 1
+            session.generate_reply(
+                instructions=(
+                    f"Question {current_q} of {controller.max_questions} is complete. "
+                    f"Briefly acknowledge the candidate's answer (1 sentence max), "
+                    f"then ask question {next_q}. "
+                    "It must be a completely new question on a different topic. "
+                    "Do NOT repeat, rephrase, or follow up on the previous question."
+                ),
+                allow_interruptions=False,
+            )
+            logger.info("generate_reply scheduled for Q#%d session=%s", next_q, session_id)
+        except Exception:
+            logger.exception("Failed to schedule generate_reply session=%s", session_id)
+
+    # ------------------------------------------------------------------
+    # Close interview
+    # ------------------------------------------------------------------
+    async def _close_interview() -> None:
+        if controller.ended:
+            return
+        _awaiting_close[0] = True
+        controller.closing = True
+        _cancel_no_response_task("closing")
+        _cancel_grace_task()
+
+        # Tell frontend immediately: clear timer, show wrapping-up state.
+        await _publish_data(json.dumps({"type": "interview_closing"}).encode())
+
+        try:
+            await session.interrupt()
+        except Exception:
+            pass
+
+        await session.say(
+            "That was the last question. Thank you for your time and thoughtful "
+            "responses. The interview is now complete. We'll be in touch soon. Goodbye!",
+            allow_interruptions=False,
+        )
+
+        # Give TTS time to fully play before disconnecting.
+        await asyncio.sleep(3.0)
+        await _publish_data(json.dumps({"type": "session_end"}).encode())
+        controller.finish()
+        shutdown_event.set()
+
+    # ------------------------------------------------------------------
+    # agent_state_changed
+    # ------------------------------------------------------------------
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(event: AgentStateChangedEvent) -> None:
+        _agent_state[0] = event.new_state
+
+        if event.new_state == "speaking":
+            # Cancel timer while agent is speaking — candidate can't answer yet.
+            _cancel_no_response_task("agent_speaking")
+            if _interview_phase[0] == "interview" and not _awaiting_close[0]:
+                asyncio.create_task(_publish_data(
+                    json.dumps({"type": "agent_speaking"}).encode()
+                ))
+            # Send Q1 progress on first agent speech in interview phase.
+            if _interview_phase[0] == "interview" and not _awaiting_close[0]:
+                if _last_progress_sent[0] == 0:
+                    _last_progress_sent[0] = 1
+                    asyncio.create_task(_publish_data(
+                        json.dumps({"type": "question_progress", "current": 1}).encode()
+                    ))
+                    logger.info("question_progress current=1 session=%s", session_id)
+
+        elif event.new_state == "listening":
+            # Agent finished speaking and is now listening for the candidate.
+            # Arm the timer if a question is active and no timer is running.
+            # The _last_agent_text guard prevents arming during the brief
+            # "listening" flash between generate_reply() and the next question.
+            if (
+                _interview_phase[0] == "interview"
+                and not _awaiting_close[0]
+                and not controller.ended
+                and bool(_last_agent_text[0])
+                and _no_response_task[0] is None
+                and _grace_task[0] is None
+            ):
+                _arm_timer()
+
+    # ------------------------------------------------------------------
+    # user_state_changed — pause/resume timer around speech
+    # ------------------------------------------------------------------
+    @session.on("user_state_changed")
+    def _on_user_state_changed(event: UserStateChangedEvent) -> None:
+        old_state = _user_state[0]
+        _user_state[0] = event.new_state
+        logger.debug("User state %s→%s session=%s", old_state, event.new_state, session_id)
+
+        if event.new_state == "speaking":
+            # User started speaking — pause the timer immediately.
+            _cancel_grace_task()
+            if _timer_seg_start[0] is not None:
+                elapsed = time.monotonic() - _timer_seg_start[0]
+                _timer_remaining[0] = max(0.0, _timer_remaining[0] - elapsed)
+                logger.debug("Timer paused at %.1fs session=%s", _timer_remaining[0], session_id)
+            _cancel_no_response_task("user_speaking")
+            asyncio.create_task(_publish_data(
+                json.dumps({"type": "user_speaking"}).encode()
+            ))
+
+        elif old_state == "speaking" and event.new_state != "speaking":
+            # User stopped speaking — start grace period.
+            if (
+                _interview_phase[0] != "interview"
+                or _awaiting_close[0]
+                or controller.ended
+                or _agent_state[0] != "listening"
+            ):
+                return
+
+            asyncio.create_task(_publish_data(
+                json.dumps({
+                    "type": "grace_period_started",
+                    "duration": _SPEAK_GRACE_SECONDS,
+                    "remaining": int(_timer_remaining[0]),
+                }).encode()
+            ))
+
+            async def _grace_then_decide() -> None:
+                # Phase 1: initial grace period (3 s).
+                # If user speaks again, this task is cancelled and the whole
+                # process restarts from user_state_changed → speaking.
+                try:
+                    await asyncio.sleep(_SPEAK_GRACE_SECONDS)
+                except asyncio.CancelledError:
+                    return
+
+                if (
+                    _interview_phase[0] != "interview"
+                    or _awaiting_close[0]
+                    or controller.ended
+                    or _user_state[0] == "speaking"
+                    or _advancing[0]
+                ):
+                    return
+
+                _grace_task[0] = None
+                word_count = _get_word_count()
+                extra_silence = _silence_needed(word_count)
+
+                if extra_silence is None:
+                    # Too few words — candidate hasn't really answered.
+                    # Resume the no-response countdown from remaining time.
+                    logger.debug(
+                        "Grace done, %d words < 6 — resuming timer at %.1fs session=%s",
+                        word_count, _timer_remaining[0], session_id,
+                    )
+                    _arm_timer()
+                    asyncio.create_task(_publish_data(
+                        json.dumps({"type": "timer_resumed", "remaining": int(_timer_remaining[0])}).encode()
+                    ))
+                    return
+
+                # Phase 2: tier-appropriate confirmation silence.
+                # Notify frontend to keep timer hidden (still in grace).
+                logger.debug(
+                    "Grace done, %d words — waiting %.1fs confirmation silence session=%s",
+                    word_count, extra_silence, session_id,
+                )
+                asyncio.create_task(_publish_data(
+                    json.dumps({
+                        "type": "grace_period_started",
+                        "duration": extra_silence,
+                        "remaining": int(_timer_remaining[0]),
+                    }).encode()
+                ))
+
+                try:
+                    await asyncio.sleep(extra_silence)
+                except asyncio.CancelledError:
+                    return
+
+                # Final guard before advancing.
+                if (
+                    _interview_phase[0] != "interview"
+                    or _awaiting_close[0]
+                    or controller.ended
+                    or _user_state[0] == "speaking"
+                    or _advancing[0]
+                ):
+                    return
+
+                logger.info(
+                    "Silence confirmed %d words / %.1fs — advancing session=%s",
+                    word_count, extra_silence, session_id,
+                )
+                asyncio.create_task(_advance_question(answered=True))
+
+            _grace_task[0] = asyncio.create_task(_grace_then_decide())
+            logger.debug("Grace started %.1fs remaining=%.1fs session=%s",
+                         _SPEAK_GRACE_SECONDS, _timer_remaining[0], session_id)
+
+    # ------------------------------------------------------------------
+    # user_input_transcribed — accumulate transcript segments
+    # ------------------------------------------------------------------
+    @session.on("user_input_transcribed")
+    def _on_user_input_transcribed(event: UserInputTranscribedEvent) -> None:
+        if event.is_final and event.transcript and event.transcript.strip():
+            _current_answer_parts[0].append(event.transcript.strip())
+            logger.info(
+                "Transcript segment len=%d parts=%d session=%s",
+                len(event.transcript.strip()), len(_current_answer_parts[0]), session_id,
+            )
+
+    # ------------------------------------------------------------------
+    # conversation_item_added — track agent text; handle greeting/repeats
+    # ------------------------------------------------------------------
+    @session.on("conversation_item_added")
+    def _on_conversation_item(event: object) -> None:
+        item = getattr(event, "item", None)
+        if item is None:
+            return
+        role = getattr(item, "role", None)
+        if not role:
+            return
+
+        if role == "assistant":
+            content = _extract_text(item)
+            if content:
+                _last_agent_text[0] = content
+
+        elif role == "user":
+            content = _extract_text(item)
+            if not content:
+                content = " ".join(_current_answer_parts[0]).strip()
+
+            logger.debug("User item phase=%s content=%r session=%s",
+                         _interview_phase[0], content[:80] if content else "", session_id)
+
+            if _interview_phase[0] == "greeting":
+                _cancel_no_response_task()
+                _interview_phase[0] = "interview"
+                _last_agent_text[0] = ""
+                logger.info("→ interview phase session=%s", session_id)
+                controller.explicit_generate_count += 1
+                try:
+                    session.generate_reply(
+                        instructions="Start the interview. Ask the first question now.",
+                        allow_interruptions=False,
+                    )
+                except Exception:
+                    logger.exception("Failed to trigger Q1 session=%s", session_id)
+                return
+
+            if _interview_phase[0] != "interview" or _awaiting_close[0]:
+                return
+
+            if not _last_agent_text[0]:
+                logger.debug("No active question — ignoring user item session=%s", session_id)
+                return
+
+            # Repeat request
+            if content and _is_repeat_request(content):
+                if not _repeat_used[0]:
+                    _repeat_used[0] = True
+                    question_to_repeat = _last_agent_text[0]
+                    logger.info("Repeat (first) Q#%d session=%s", _qa_number[0] + 1, session_id)
+
+                    async def _do_repeat() -> None:
+                        try:
+                            await session.interrupt()
+                        except Exception:
+                            pass
+                        await session.say(question_to_repeat, allow_interruptions=False)
+                    asyncio.create_task(_do_repeat())
+                else:
+                    logger.info("Repeat (blocked) session=%s", session_id)
+
+                    async def _do_repeat_blocked() -> None:
+                        try:
+                            await session.interrupt()
+                        except Exception:
+                            pass
+                        await session.say(
+                            "I can only repeat each question once — please go ahead and answer.",
+                            allow_interruptions=False,
+                        )
+                    asyncio.create_task(_do_repeat_blocked())
+                return
+
+            # Normal user turn committed by Deepgram.
+            # Do NOT advance here — the grace/silence logic in user_state_changed
+            # is the sole advancement path for answered questions.
+            # This handler only tracks the transcript for repeat detection.
+            logger.debug(
+                "User turn committed Q#%d — grace/silence logic will advance session=%s",
+                _qa_number[0] + 1, session_id,
+            )
+
+    # ------------------------------------------------------------------
+    # Data channel: tab-switch
+    # ------------------------------------------------------------------
+    @ctx.room.on("data_received")
+    def _on_data_received(data: bytes, *args, **kwargs) -> None:
+        try:
+            msg = json.loads(data.decode())
+        except Exception:
+            return
+
+        if msg.get("type") == "tab_switch" and not controller.ended:
+            logger.warning("Tab switch detected session=%s", session_id)
+
+            async def _terminate_tab_switch() -> None:
+                _cancel_no_response_task()
+                _cancel_grace_task()
+                controller.terminated = True
+
+                timer_snap = _timer_remaining[0]
+                if _timer_seg_start[0] is not None:
+                    elapsed = time.monotonic() - _timer_seg_start[0]
+                    timer_snap = max(0.0, timer_snap - elapsed)
+
+                try:
+                    from app.services.supabase import update_record as _upd
+                    _upd("interview_sessions", session_id, {
+                        "status": "terminated_tab_switch",
+                        "terminated_at_question": _qa_number[0] + 1,
+                        "timer_remaining_at_termination": timer_snap,
+                    })
+                except Exception:
+                    logger.exception("Failed to persist termination metadata session=%s", session_id)
+
+                await _publish_data(json.dumps({"type": "terminated"}).encode())
+                controller.finish()
+                await _send_termination_email("tab_switch")
+                shutdown_event.set()
+
+            asyncio.create_task(_terminate_tab_switch())
+
+    # ------------------------------------------------------------------
+    # Greeting
+    # ------------------------------------------------------------------
+    await session.say(
+        f"Hi there! Welcome to your interview. I'm your AI interviewer today. "
+        f"A few quick rules before we begin: "
+        f"Do not switch tabs — any tab switch will immediately end the session. "
+        f"After each question, you have {_NO_RESPONSE_SECONDS} seconds of silence before I move on. "
+        f"You can speak for as long as you need — the timer only counts down when you are not speaking. "
+        f"You may ask me to repeat a question once by saying 'repeat'. "
+        f"Alright, let's get started. Are you ready?",
+        allow_interruptions=False,
+    )
+
+    # ------------------------------------------------------------------
+    # Duration watchdog
+    # ------------------------------------------------------------------
     async def _duration_watchdog() -> None:
         await asyncio.sleep(controller.max_duration_seconds)
         if not controller.ended:
-            logger.info("Interview duration limit reached for session=%s", session_id)
-            end_msg = json.dumps({"type": "session_end"}).encode()
-            await _publish_data(end_msg)
+            logger.info("Duration limit reached session=%s", session_id)
+            _cancel_no_response_task()
+            _cancel_grace_task()
             await session.say(
-                "We've reached the end of our time. Thank you for your responses. "
-                "The interview is now complete.",
+                "We've reached the end of our allotted time. Thank you for your responses. "
+                "The interview is now complete. We will be in touch soon. Goodbye!",
                 allow_interruptions=False,
             )
+            await asyncio.sleep(3.0)
+            await _publish_data(json.dumps({"type": "session_end"}).encode())
             controller.finish()
             shutdown_event.set()
 
@@ -277,21 +747,20 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("close")
     def _on_close(event: CloseEvent) -> None:
+        _cancel_grace_task()
+        _cancel_no_response_task()
         controller.finish()
         shutdown_event.set()
 
-    # Also handle room disconnect
     @ctx.room.on("disconnected")
     def _on_room_disconnect() -> None:
+        _cancel_grace_task()
+        _cancel_no_response_task()
         controller.finish()
         shutdown_event.set()
 
     await shutdown_event.wait()
 
-
-# ---------------------------------------------------------------------------
-# Worker configuration
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     cli.run_app(

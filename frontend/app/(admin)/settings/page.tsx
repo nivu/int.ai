@@ -148,7 +148,7 @@ function TeamTab() {
 
       if (session?.access_token) {
         try {
-          await backendFetch("/api/invitations/send", {
+          await backendFetch("/api/v1/invitations/send", {
             method: "POST",
             token: session.access_token,
             body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),

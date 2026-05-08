@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { backendFetch } from "@/lib/api/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +43,7 @@ export function ApplicationForm({
   const [resumeFilename, setResumeFilename] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
 
   const isValid =
     formData.full_name.trim() !== "" &&
@@ -63,10 +63,10 @@ export function ApplicationForm({
     setError(null);
 
     try {
-      // Submit via backend API (uses service role to bypass RLS for
-      // unauthenticated candidates)
-      await backendFetch("/api/v1/applications/submit", {
+      // Submit via Next.js proxy (avoids cross-origin issues)
+      const res = await fetch("/api/applications/submit", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hiring_post_id: hiringPostId,
           full_name: formData.full_name.trim(),
@@ -84,43 +84,64 @@ export function ApplicationForm({
         }),
       });
 
-      // Trigger confirmation email via backend API (best-effort)
-      try {
-        await backendFetch("/api/v1/email/application-confirmation", {
-          method: "POST",
-          body: JSON.stringify({
-            candidate_email: formData.email.trim().toLowerCase(),
-            candidate_name: formData.full_name.trim(),
-            hiring_post_id: hiringPostId,
-            share_slug: shareSlug,
-          }),
-        });
-      } catch {
-        // Email failure should not block the application submission
-        console.warn("Failed to send confirmation email");
-      }
+      console.log("[ApplicationForm] submit response status:", res.status);
 
-      onSuccess();
-    } catch (err: unknown) {
-      // Handle duplicate application (409 from backend)
-      const backendErr = err as { status?: number; detail?: string };
-      if (backendErr.status === 409) {
-        setError(
-          "You've already applied to this position. Check your email for your portal link."
-        );
-        setSubmitting(false);
+      if (res.status === 409) {
+        setAlreadyApplied(true);
         return;
       }
-      setError(
-        err instanceof Error ? err.message : "Something went wrong. Please try again."
-      );
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setError(body?.detail ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      // Trigger confirmation email (best-effort, fire-and-forget)
+      fetch("/api/email/application-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          candidate_email: formData.email.trim().toLowerCase(),
+          candidate_name: formData.full_name.trim(),
+          hiring_post_id: hiringPostId,
+          share_slug: shareSlug,
+        }),
+      }).catch(() => {});
+
+      onSuccess();
+    } catch (err) {
+      console.error("[ApplicationForm] submit error:", err);
+      setError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
+  if (alreadyApplied) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950 px-6 py-8 text-center space-y-3">
+        <p className="text-2xl">📋</p>
+        <p className="font-semibold text-amber-900 dark:text-amber-100">
+          You&apos;ve already applied for this position
+        </p>
+        <p className="text-sm text-amber-700 dark:text-amber-300">
+          We already have an application on file for{" "}
+          <strong>{formData.email.trim().toLowerCase()}</strong>. Check your
+          email for your application confirmation and portal link.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
       {/* Personal Information */}
       <div className="space-y-4">
         <h3 className="text-base font-medium">Personal Information</h3>
@@ -241,12 +262,6 @@ export function ApplicationForm({
         onFileSelect={(file) => setResumeFilename(file.name)}
         onUpload={(storagePath) => setResumePath(storagePath)}
       />
-
-      {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
 
       <Button
         type="submit"

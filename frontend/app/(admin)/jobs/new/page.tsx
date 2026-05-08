@@ -37,6 +37,20 @@ export default function NewJobPage() {
       const now = new Date().toISOString();
       const isPublish = data.publish_now;
 
+      // Create an interview template for this job
+      const { data: template, error: templateError } = await supabase
+        .from("interview_templates")
+        .insert({
+          org_id: member.org_id,
+          name: `${data.title} Interview`,
+          max_questions: data.max_questions,
+          max_duration_minutes: data.max_duration_minutes,
+        })
+        .select("id")
+        .single();
+
+      if (templateError) throw templateError;
+
       const { data: post, error } = await supabase
         .from("hiring_posts")
         .insert({
@@ -51,7 +65,7 @@ export default function NewJobPage() {
           education_requirements: data.education_requirements,
           scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
-          interview_template_id: data.interview_template_id || null,
+          interview_template_id: template.id,
           status: isPublish ? "published" : "draft",
           published_at: isPublish ? now : null,
           closes_at: data.closes_at

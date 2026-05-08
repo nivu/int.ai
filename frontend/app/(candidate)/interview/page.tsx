@@ -50,65 +50,34 @@ export default function InterviewPage() {
       try {
         const supabase = createClient();
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const userEmail = user.email;
-        if (!userEmail) {
+          data: { session: authSession },
+        } = await supabase.auth.getSession();
+        if (!authSession?.access_token) {
           setLoading(false);
           return;
         }
 
-        const now = new Date().toISOString();
-
-        // Use service-role-powered query: find applications by candidate email,
-        // then find pending interview sessions for those applications.
-        // Step 1: Find candidate by email (try auth_user_id first, then email)
-        const { data: apps } = await supabase
-          .from("applications")
-          .select("id")
-          .order("created_at", { ascending: false });
-
-        if (!apps || apps.length === 0) {
-          setLoading(false);
+        const data = await backendFetch<InterviewSession>("/api/v1/interview/my-session", {
+          token: authSession.access_token,
+        });
+        setSession(data);
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status;
+        if (status === 403) {
+          // Already completed — redirect to portal, no need to show a screen
+          router.replace("/portal");
           return;
+        } else if (status === 401) {
+          // Session expired; force re-auth by going to login.
+          router.replace("/auth/login");
+          return;
+        } else if (status === 502) {
+          setError("Interview service is temporarily unavailable. Please try again shortly.");
+          return;
+        } else if (status !== 404) {
+          setError("Failed to load interview details. Please try again.");
         }
-
-        // Step 2: Query interview_sessions for any of these application IDs
-        const appIds = apps.map((a) => a.id);
-
-        const { data, error: queryError } = await supabase
-          .from("interview_sessions")
-          .select(
-            `
-            id,
-            status,
-            deadline,
-            consent_given_at,
-            application:applications!inner(
-              id,
-              candidate_id,
-              hiring_post:hiring_posts!inner(title, department)
-            ),
-            template:interview_templates!inner(max_duration_minutes, max_questions)
-          `
-          )
-          .in("application_id", appIds)
-          .eq("status", "pending")
-          .gt("deadline", now)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (queryError) {
-          console.error("Interview session query error:", queryError);
-          throw queryError;
-        }
-        setSession(data as unknown as InterviewSession | null);
-      } catch (err) {
-        console.error("Failed to fetch interview session:", err);
-        setError("Failed to load interview details. Please try again.");
+        // 404 = no pending interview, leave session as null → shows "No Interview Available"
       } finally {
         setLoading(false);
       }
