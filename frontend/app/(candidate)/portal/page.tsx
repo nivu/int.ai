@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   Card,
@@ -42,6 +43,9 @@ function isWithinDeadline(deadline: string | null): boolean {
 }
 
 export default function CandidatePortalPage() {
+  const searchParams = useSearchParams();
+  const sessionEnded = searchParams.get("session_ended") === "1";
+
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [candidateId, setCandidateId] = useState<string | null>(null);
@@ -156,6 +160,11 @@ export default function CandidatePortalPage() {
 
   return (
     <div className="space-y-6">
+      {sessionEnded && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          Your interview session is no longer active. If you believe this was a mistake, please contact the hiring team.
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">My Applications</h1>
         <p className="text-sm text-muted-foreground mt-1">

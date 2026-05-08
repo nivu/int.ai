@@ -3,26 +3,22 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
 from app.services import email as email_service
 from app.services.embeddings import embed_text, store_embedding
-from app.services.resume_parser import process_resume
+from app.services.resume_parser import extract_text_from_pdf, extract_text_from_docx, parse_resume
 from app.services.scoring import (
     compute_overall_score,
-    score_culture_match,
+    score_all_dimensions,
     score_embedding_similarity,
-    score_experience_match,
-    score_skill_match,
 )
 from app.services.supabase import get_record, get_signed_url, insert_record, supabase, update_record
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
-
-# Auto-advance thresholds (offset applied relative to hiring post threshold)
-REVIEW_BAND = 5  # points below threshold that still warrant human review
 
 
 @celery_app.task(bind=True, name="screen_resume_task", max_retries=2)
@@ -59,35 +55,46 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
 
         filename = resume_path.rsplit("/", maxsplit=1)[-1] if "/" in resume_path else resume_path
 
-        # 3. Parse resume
-        logger.info("Parsing resume for application=%s", application_id)
-        parsed = process_resume(file_bytes, filename)
+        # 3. Extract raw text (fast — pdfplumber/docx, no LLM)
+        logger.info("Extracting text from resume for application=%s", application_id)
+        extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+        if extension == "pdf":
+            resume_text = extract_text_from_pdf(file_bytes)
+        elif extension in ("docx", "doc"):
+            resume_text = extract_text_from_docx(file_bytes)
+        else:
+            raise ValueError(f"Unsupported resume format: .{extension}")
 
-        # 4. Store parsed data in resume_data table
+        if not resume_text.strip():
+            raise ValueError("Could not extract any text from the resume file.")
+
+        # 4. Create a placeholder resume_data row so score details have somewhere to land.
+        #    raw_markdown is set to the extracted text now; the LLM-parsed fields are
+        #    filled in later once parse_resume() completes.
         resume_data_record = insert_record("resume_data", {
             "application_id": application_id,
-            "parsed_name": parsed.get("name", ""),
-            "parsed_email": parsed.get("email", ""),
-            "parsed_education": parsed.get("education", []),
-            "parsed_experience": parsed.get("experience", []),
-            "parsed_skills": parsed.get("skills", []),
-            "parsed_projects": parsed.get("projects", []),
-            "parsed_certifications": parsed.get("certifications", []),
-            "parsed_summary": parsed.get("summary", ""),
-            "raw_markdown": parsed.get("raw_markdown", ""),
+            "raw_markdown": resume_text,
         })
         resume_data_id = resume_data_record["id"]
 
-        # 5. Embedding similarity
-        resume_text = parsed.get("raw_text", "")
-        embedding_score = score_embedding_similarity(resume_text, jd_text)
+        # 5. Launch parsing AND scoring in parallel.
+        #    Combined scoring uses a single LLM call (~8-12 s) vs three separate
+        #    calls (~15-20 s total latency). Embedding runs concurrently.
+        #    LLM parsing (~30 s) runs in background — parse data fills in after.
+        pool = ThreadPoolExecutor(max_workers=3)
+        fut_parse = pool.submit(parse_resume, resume_text)
+        fut_embed = pool.submit(score_embedding_similarity, resume_text, jd_text)
+        fut_scores = pool.submit(score_all_dimensions, resume_text, jd_text, jd_skills)
 
-        # 6. LLM-based scoring
-        skill_score, skill_details = score_skill_match(resume_text, jd_skills)
-        experience_score, experience_details = score_experience_match(resume_text, jd_text)
-        culture_score, culture_details = score_culture_match(resume_text, jd_text)
+        # Collect scoring results
+        embedding_score = fut_embed.result()
+        (
+            skill_score, skill_details,
+            experience_score, experience_details,
+            culture_score, culture_details,
+        ) = fut_scores.result()
 
-        # 7. Compute overall weighted score
+        # 6. Compute overall weighted score
         scores = {
             "embedding_similarity": embedding_score,
             "skill_match": skill_score,
@@ -103,8 +110,22 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             embedding_score, skill_score, experience_score, culture_score,
         )
 
-        # 8. Update application with scores and status
-        update_data = {
+        # Write score details into resume_data
+        update_record("resume_data", resume_data_id, {
+            "skill_match_details": skill_details,
+            "experience_match_details": experience_details,
+            "culture_match_details": culture_details,
+        })
+
+        # Store embedding (best-effort)
+        try:
+            resume_embedding = embed_text(resume_text)
+            store_embedding(resume_data_id, resume_embedding)
+        except Exception:
+            logger.exception("Failed to store embedding for resume_data_id=%s — skipping", resume_data_id)
+
+        # 7. Update application with scores + status — fires realtime event → UI shows scores
+        update_record("applications", application_id, {
             "embedding_score": round(embedding_score, 4),
             "skill_match_score": round(skill_score, 4),
             "experience_match_score": round(experience_score, 4),
@@ -112,31 +133,17 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             "overall_score": round(overall_score, 4),
             "status": "screened",
             "screening_completed_at": datetime.now(timezone.utc).isoformat(),
-        }
-        update_record("applications", application_id, update_data)
-
-        # Store score details in resume_data
-        update_record("resume_data", resume_data_id, {
-            "skill_match_details": skill_details,
-            "experience_match_details": experience_details,
-            "culture_match_details": culture_details,
         })
 
-        # 9. Store embedding in resume_data
-        resume_embedding = embed_text(resume_text)
-        store_embedding(resume_data_id, resume_embedding)
-
-        # 10. Get candidate details for emails
+        # 8. Get candidate details for emails
         candidate = get_record("candidates", application["candidate_id"])
         candidate_email = candidate.get("email", "")
         candidate_name = candidate.get("full_name", "")
-        portal_url = f"{settings.FRONTEND_URL}/portal"
+        interview_url = f"{settings.FRONTEND_URL}/interview"
 
-        # 11. Auto-advance logic
-        rejection_threshold = threshold - (REVIEW_BAND / 100.0)
-
+        # 11. Auto-advance logic — binary outcome, no manual review band
         if overall_score >= threshold:
-            # Auto-advance to interview
+            # Passed — send interview invitation immediately
             deadline_dt = datetime.now(timezone.utc) + timedelta(days=7)
             interview_deadline = deadline_dt.strftime("%B %d, %Y")
 
@@ -167,13 +174,14 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                         candidate_name=candidate_name,
                         job_title=job_title,
                         interview_deadline=interview_deadline,
-                        portal_url=portal_url,
+                        interview_url=interview_url,
                     )
                     logger.info("Interview invitation sent to %s", candidate_email)
                 except Exception:
                     logger.exception("Failed to send interview invitation for application=%s", application_id)
 
-        elif overall_score < rejection_threshold:
+        else:
+            # Did not pass — send rejection email immediately
             update_record("applications", application_id, {"status": "resume_rejected"})
 
             if candidate_email:
@@ -187,9 +195,30 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                 except Exception:
                     logger.exception("Failed to send rejection email for application=%s", application_id)
 
-        else:
-            # Score is between rejection_threshold and threshold — flag for review
-            logger.info("Application %s flagged for review (score=%.3f)", application_id, overall_score)
+        # 10. Wait for LLM parse to finish, then fill in structured resume fields.
+        #     This fires a second realtime update so the UI shows skills/experience/popovers.
+        try:
+            parsed = fut_parse.result()
+            update_record("resume_data", resume_data_id, {
+                "parsed_name": parsed.get("name", ""),
+                "parsed_email": parsed.get("email", ""),
+                "parsed_education": parsed.get("education", []),
+                "parsed_experience": parsed.get("experience", []),
+                "parsed_skills": parsed.get("skills", []),
+                "parsed_projects": parsed.get("projects", []),
+                "parsed_certifications": parsed.get("certifications", []),
+                "parsed_summary": parsed.get("summary", ""),
+                "raw_markdown": parsed.get("raw_markdown", ""),
+            })
+            # Touch the application to trigger a second realtime fetch with full resume details
+            update_record("applications", application_id, {
+                "screening_completed_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("Resume parse stored for application=%s", application_id)
+        except Exception:
+            logger.exception("Failed to store parsed resume data for application=%s", application_id)
+        finally:
+            pool.shutdown(wait=False)
 
         return {
             "application_id": application_id,
@@ -200,10 +229,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
     except Exception as exc:
         logger.exception("Resume screening failed for application=%s", application_id)
         try:
-            update_record("applications", application_id, {
-                "status": "screening_error",
-                "screening_error": str(exc),
-            })
+            update_record("applications", application_id, {"status": "applied"})
         except Exception:
-            logger.exception("Failed to update application error status for %s", application_id)
+            logger.exception("Failed to reset application status for %s", application_id)
         raise

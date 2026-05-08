@@ -16,7 +16,7 @@ export default async function AllCandidatesPage() {
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from("user_profiles")
+    .from("team_members")
     .select("org_id")
     .eq("user_id", user.id)
     .single();

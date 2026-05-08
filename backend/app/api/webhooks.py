@@ -42,6 +42,25 @@ async def application_created(payload: dict[str, Any]) -> dict[str, str]:
         hiring_post_id,
     )
 
+    # Idempotency: skip if the application has already moved past 'applied'
+    # (guards against duplicate trigger fires).
+    try:
+        from app.services.supabase import get_record
+
+        app_row = get_record("applications", application_id)
+        if app_row.get("status") != "applied":
+            logger.info(
+                "Skipping screening dispatch — application already processed: %s (status=%s)",
+                application_id,
+                app_row.get("status"),
+            )
+            return {"status": "skipped"}
+    except Exception:
+        logger.warning(
+            "Could not verify application status for idempotency check: %s — proceeding",
+            application_id,
+        )
+
     # Trigger async resume screening task if the module is available
     try:
         from app.tasks.screen_resume import screen_resume_task
@@ -119,15 +138,22 @@ async def application_status_changed(payload: dict[str, Any]) -> dict[str, str]:
         )
         job_title: str = post.data["title"]
 
-        # Send email
+        # Send email — shortlisted gets a dedicated email, others get generic update
         from app.services import email as email_service
 
-        email_service.send_status_update(
-            candidate_email=candidate_email,
-            candidate_name=candidate_name,
-            job_title=job_title,
-            new_status=new_status,
-        )
+        if new_status == "shortlisted":
+            email_service.send_shortlisted(
+                candidate_email=candidate_email,
+                candidate_name=candidate_name,
+                job_title=job_title,
+            )
+        else:
+            email_service.send_status_update(
+                candidate_email=candidate_email,
+                candidate_name=candidate_name,
+                job_title=job_title,
+                new_status=new_status,
+            )
 
         logger.info(
             "Status-change email sent for application_id=%s to=%s new_status=%s",

@@ -2,6 +2,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/components/shared/logout-button";
+import { ThemeToggle } from "@/components/shared/theme-toggle";
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 export default async function CandidateLayout({
   children,
@@ -10,12 +13,20 @@ export default async function CandidateLayout({
 }) {
   const supabase = await createClient();
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!user) {
+  if (!session?.user) {
     redirect("/auth/login?type=candidate");
   }
+
+  const user = session.user;
+
+  // Link auth_user_id to candidate record on every load (server-side, bypasses RLS)
+  fetch(`${BACKEND_URL}/api/v1/interview/link-candidate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  }).catch(() => {}); // fire-and-forget, never block the page
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -24,8 +35,9 @@ export default async function CandidateLayout({
           <Link href="/portal" className="text-lg font-bold tracking-tight">
             int.ai
           </Link>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">{user.email}</span>
+            <ThemeToggle />
             <LogoutButton className="text-sm text-muted-foreground hover:text-foreground transition-colors" />
           </div>
         </div>

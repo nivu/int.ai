@@ -22,10 +22,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUpDown, Search, Loader2 } from "lucide-react";
+import { ArrowUpDown, Search, Loader2, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { backendFetch } from "@/lib/api/backend";
 import CompareButton from "@/components/admin/compare-button";
+import {
+  SkillMatchPopover,
+  ExperienceMatchPopover,
+  CultureMatchPopover,
+  type SkillMatchDetails,
+  type ExperienceMatchDetails,
+  type CultureMatchDetails,
+} from "@/components/admin/score-popover";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,6 +68,9 @@ export interface ApplicationRecord {
     parsed_summary: string | null;
     parsed_experience: { company: string; role: string; duration: string; description: string }[];
     parsed_skills: string[];
+    skill_match_details: SkillMatchDetails | null;
+    experience_match_details: ExperienceMatchDetails | null;
+    culture_match_details: CultureMatchDetails | null;
   } | null;
   // optional: present when showing all-candidates view
   hiring_post?: {
@@ -147,6 +158,53 @@ function SortableHeader({
     >
       {label}
       <ArrowUpDown className="size-3.5" />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Re-screen button
+// ---------------------------------------------------------------------------
+
+function ReScreenButton({
+  applicationId,
+  hiringPostId,
+}: {
+  applicationId: string;
+  hiringPostId: string;
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "done">("idle");
+
+  async function handleClick() {
+    setState("loading");
+    try {
+      await backendFetch("/api/v1/screening/trigger", {
+        method: "POST",
+        body: JSON.stringify({ application_id: applicationId, hiring_post_id: hiringPostId }),
+      });
+      setState("done");
+    } catch {
+      setState("idle");
+    }
+  }
+
+  if (state === "done") {
+    return <span className="text-xs text-muted-foreground">Queued</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={state === "loading"}
+      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+    >
+      {state === "loading" ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : (
+        <RefreshCw className="size-3" />
+      )}
+      Re-screen
     </button>
   );
 }
@@ -293,9 +351,15 @@ function buildColumns(
       header: ({ column }) => (
         <SortableHeader label="Skill Match" column={column} />
       ),
-      cell: ({ getValue }) => (
-        <span className="tabular-nums">{scorePercent(getValue<number>())}</span>
-      ),
+      cell: ({ getValue, row }) => {
+        const details = row.original.resume_data?.skill_match_details ?? null;
+        return (
+          <span className="inline-flex items-center gap-1">
+            <span className="tabular-nums">{scorePercent(getValue<number | null>())}</span>
+            {details && <SkillMatchPopover details={details} />}
+          </span>
+        );
+      },
     },
     // Experience Match
     {
@@ -304,9 +368,15 @@ function buildColumns(
       header: ({ column }) => (
         <SortableHeader label="Exp Match" column={column} />
       ),
-      cell: ({ getValue }) => (
-        <span className="tabular-nums">{scorePercent(getValue<number>())}</span>
-      ),
+      cell: ({ getValue, row }) => {
+        const details = row.original.resume_data?.experience_match_details ?? null;
+        return (
+          <span className="inline-flex items-center gap-1">
+            <span className="tabular-nums">{scorePercent(getValue<number | null>())}</span>
+            {details && <ExperienceMatchPopover details={details} />}
+          </span>
+        );
+      },
     },
     // Culture Match
     {
@@ -315,9 +385,15 @@ function buildColumns(
       header: ({ column }) => (
         <SortableHeader label="Culture" column={column} />
       ),
-      cell: ({ getValue }) => (
-        <span className="tabular-nums">{scorePercent(getValue<number>())}</span>
-      ),
+      cell: ({ getValue, row }) => {
+        const details = row.original.resume_data?.culture_match_details ?? null;
+        return (
+          <span className="inline-flex items-center gap-1">
+            <span className="tabular-nums">{scorePercent(getValue<number | null>())}</span>
+            {details && <CultureMatchPopover details={details} />}
+          </span>
+        );
+      },
     },
     // Overall Score
     {
@@ -351,6 +427,31 @@ function buildColumns(
           </span>
         );
       },
+    },
+    // Score Details / Re-screen action
+    {
+      id: "score_details",
+      header: "",
+      cell: ({ row }) => {
+        const hasScores = row.original.overall_score != null;
+        if (!hasScores) {
+          return (
+            <ReScreenButton
+              applicationId={row.original.id}
+              hiringPostId={row.original.hiring_post_id}
+            />
+          );
+        }
+        return (
+          <Link
+            href={`/candidates/${row.original.id}/score-details`}
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors whitespace-nowrap"
+          >
+            Score Details
+          </Link>
+        );
+      },
+      enableSorting: false,
     },
   );
 
@@ -404,6 +505,12 @@ export default function CandidateTable({
 
   const selectedCount = Object.keys(rowSelection).length;
 
+  // Statuses that mean the interview is already done — can't resend
+  const POST_INTERVIEW_STATUSES: ApplicationStatus[] = ["interviewed", "shortlisted", "interview_rejected"];
+
+  const selectedRows = Object.keys(rowSelection).map((id) => data.find((d) => d.id === id)).filter(Boolean) as ApplicationRecord[];
+  const canSendInterview = selectedRows.some((r) => !POST_INTERVIEW_STATUSES.includes(r.status));
+
   const [bulkLoading, setBulkLoading] = useState(false);
 
   async function handleBulkAction(action: "send_interview" | "reject" | "shortlist") {
@@ -419,6 +526,8 @@ export default function CandidateTable({
         for (const appId of selectedIds) {
           const app = data.find((d) => d.id === appId);
           if (!app) continue;
+          // Skip candidates who have already completed the interview
+          if (POST_INTERVIEW_STATUSES.includes(app.status)) continue;
 
           // Update application status
           await supabase
@@ -438,13 +547,24 @@ export default function CandidateTable({
             .single();
 
           if (hp?.interview_template_id) {
-            // Create interview session
-            await supabase.from("interview_sessions").insert({
-              application_id: appId,
-              template_id: hp.interview_template_id,
-              status: "pending",
-              deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            });
+            // Only create a session if one doesn't already exist for this application
+            const { data: existingSessions } = await supabase
+              .from("interview_sessions")
+              .select("id")
+              .eq("application_id", appId)
+              .limit(1);
+
+            if (!existingSessions || existingSessions.length === 0) {
+              const { error: sessionError } = await supabase.from("interview_sessions").insert({
+                application_id: appId,
+                template_id: hp.interview_template_id,
+                status: "pending",
+                deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+              if (sessionError) {
+                console.error("Failed to create interview session for application", appId, sessionError);
+              }
+            }
           }
 
           // Send interview invitation email (best-effort)
@@ -465,7 +585,7 @@ export default function CandidateTable({
                     candidate_name: candidate.full_name,
                     job_title: app.hiring_post?.title ?? "the position",
                     interview_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-                    portal_url: `${window.location.origin}/portal`,
+                    interview_url: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/interview`,
                   },
                 }),
               });
@@ -477,8 +597,37 @@ export default function CandidateTable({
       } else if (action === "reject") {
         await supabase
           .from("applications")
-          .update({ status: "rejected" })
+          .update({ status: "resume_rejected" })
           .in("id", selectedIds);
+
+        // Send rejection emails (best-effort)
+        for (const appId of selectedIds) {
+          const app = data.find((d) => d.id === appId);
+          if (!app) continue;
+          try {
+            const { data: candidate } = await supabase
+              .from("candidates")
+              .select("email, full_name")
+              .eq("id", app.candidate_id)
+              .single();
+
+            if (candidate?.email) {
+              await backendFetch("/api/v1/email/send", {
+                method: "POST",
+                body: JSON.stringify({
+                  template: "rejection",
+                  to: candidate.email,
+                  data: {
+                    candidate_name: candidate.full_name,
+                    job_title: app.hiring_post?.title ?? "the position",
+                  },
+                }),
+              });
+            }
+          } catch {
+            // Email failure shouldn't block the action
+          }
+        }
       } else if (action === "shortlist") {
         await supabase
           .from("applications")
@@ -538,7 +687,8 @@ export default function CandidateTable({
             <Button
               size="sm"
               variant="outline"
-              disabled={bulkLoading}
+              disabled={bulkLoading || !canSendInterview}
+              title={!canSendInterview ? "All selected candidates have already completed their interview" : undefined}
               onClick={() => handleBulkAction("send_interview")}
             >
               {bulkLoading ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/components/shared/logout-button";
+import { ThemeToggle } from "@/components/shared/theme-toggle";
+import { AuthErrorHandler } from "@/components/shared/auth-error-handler";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -26,7 +28,22 @@ export default async function AdminLayout({
     redirect("/auth/login");
   }
 
+  // Verify the authenticated user is a member of a team with an allowed role
+  const { data: teamMember } = await supabase
+    .from("team_members")
+    .select("role")
+    .eq("user_id", user.id)
+    .in("role", ["admin", "recruiter", "hiring_manager"])
+    .limit(1)
+    .single();
+
+  if (!teamMember) {
+    redirect("/auth/login");
+  }
+
   return (
+    <>
+    <AuthErrorHandler />
     <div className="flex h-screen">
       <aside className="w-64 border-r bg-muted/30 p-6 flex flex-col">
         <div className="mb-8">
@@ -45,11 +62,15 @@ export default async function AdminLayout({
           ))}
         </nav>
         <div className="mt-auto pt-4 border-t space-y-2">
-          <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+            <ThemeToggle />
+          </div>
           <LogoutButton />
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-8">{children}</main>
     </div>
+    </>
   );
 }

@@ -63,7 +63,9 @@ def score_embedding_similarity(resume_text: str, jd_text: str) -> float:
 
 SKILL_MATCH_SYSTEM_PROMPT = """\
 You are an expert technical recruiter. Given a resume and a list of required \
-skills, evaluate whether the candidate demonstrates each skill.
+skills, evaluate whether the candidate demonstrates each skill — either \
+explicitly (mentioned by name) or implicitly (demonstrated through tools, \
+frameworks, or projects that require that skill).
 
 Return **only** valid JSON (no markdown fences) in this format:
 {
@@ -79,8 +81,29 @@ Return **only** valid JSON (no markdown fences) in this format:
 
 Rules:
 - Evaluate each skill independently.
-- confidence should reflect how strongly the resume demonstrates the skill.
-- If a skill is not found at all, set matched=false, confidence=0.0, evidence="Not found".
+- STRONG implicit inference is required — do not penalise candidates for not \
+spelling out fundamentals that are obviously demonstrated:
+  - Any Python project, script, or ML work → data types and basic data structures \
+are prerequisite knowledge. Confidence >= 0.85.
+  - Any Python framework (Django, Flask, FastAPI, SQLAlchemy, PyTorch, TensorFlow, \
+Keras, scikit-learn) → OOP is required to use them. Confidence >= 0.85.
+  - Git mentioned, or any collaborative/team/open-source work → version control. \
+Confidence >= 0.85.
+  - Teaching, tutoring, or mentoring technical subjects → communication and \
+problem-solving skills. Confidence >= 0.8.
+  - ML/AI coursework or projects → Python proficiency, mathematics, data handling.
+  - In general: if a reasonable senior engineer would consider the skill \
+OBVIOUSLY REQUIRED to do what the candidate has done, score it high.
+- confidence levels:
+  - 0.85-1.0: clearly demonstrated, explicitly or obviously implied
+  - 0.6-0.84: strongly implied by tools/frameworks/projects used
+  - 0.3-0.59: weak or tangential signal
+  - 0.0: genuinely no evidence whatsoever
+- Set matched=true whenever confidence >= 0.4.
+- Never give 0% for a fundamental skill (OOP, data structures, problem-solving) \
+when the candidate has years of programming experience — that is not credible.
+- evidence must explain the reasoning, e.g. \
+"Implicit: taught ML frameworks which are class-based and require OOP mastery".
 """
 
 
@@ -120,12 +143,24 @@ the job description and evaluate experience alignment.
 
 Return **only** valid JSON (no markdown fences):
 {
-  "seniority_alignment": {"score": 0.0-1.0, "reasoning": "string"},
-  "years_of_experience": {"score": 0.0-1.0, "reasoning": "string"},
-  "project_complexity": {"score": 0.0-1.0, "reasoning": "string"},
-  "domain_relevance": {"score": 0.0-1.0, "reasoning": "string"},
+  "seniority_alignment": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
+  "years_of_experience": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
+  "project_complexity": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
+  "domain_relevance": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
   "overall": 0.0-1.0
 }
+
+CRITICAL rules on seniority:
+- If the candidate is MORE experienced than the role requires, treat them as \
+OVERQUALIFIED — this is a positive signal, not a penalty. Score seniority_alignment \
+at 0.9-1.0 and note "Overqualified — brings more than required".
+- Never penalise a candidate for having too much experience. A senior engineer \
+applying for a junior role has every skill needed and more.
+- Only score seniority low if the candidate is clearly UNDER-qualified.
+- years_of_experience should also score high when the candidate exceeds requirements.
+- overall must reflect that an overqualified candidate is a strong match.
+
+The evidence field must be copied word-for-word from the resume. Do not paraphrase.
 """
 
 
@@ -153,11 +188,13 @@ description, infer culture-fit signals.
 
 Return **only** valid JSON (no markdown fences):
 {
-  "collaboration_signals": {"score": 0.0-1.0, "reasoning": "string"},
-  "communication_style": {"score": 0.0-1.0, "reasoning": "string"},
-  "initiative_indicators": {"score": 0.0-1.0, "reasoning": "string"},
+  "collaboration_signals": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
+  "communication_style": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
+  "initiative_indicators": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase copied verbatim from the resume"},
   "overall": 0.0-1.0
 }
+
+The evidence field must be copied word-for-word from the resume. Do not paraphrase.
 """
 
 
@@ -173,6 +210,104 @@ def score_culture_match(
     details = _llm_json_request(CULTURE_MATCH_SYSTEM_PROMPT, user_content)
     score = float(details.get("overall", 0.0))
     return max(0.0, min(1.0, score)), details
+
+
+# ---------------------------------------------------------------------------
+# Combined scoring (single LLM call for all three dimensions)
+# ---------------------------------------------------------------------------
+
+COMBINED_SCORING_SYSTEM_PROMPT = """\
+You are an expert technical recruiter. Evaluate the candidate's resume against \
+the job description across three dimensions in a single pass.
+
+Return **only** valid JSON (no markdown fences):
+{
+  "skill_match": {
+    "skills": [
+      {
+        "skill": "string",
+        "matched": true/false,
+        "confidence": 0.0-1.0,
+        "evidence": "brief quote or explanation from the resume"
+      }
+    ]
+  },
+  "experience_match": {
+    "seniority_alignment": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "years_of_experience": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "project_complexity": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "domain_relevance": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "overall": 0.0-1.0
+  },
+  "culture_match": {
+    "collaboration_signals": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "communication_style": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "initiative_indicators": {"score": 0.0-1.0, "reasoning": "string", "evidence": "exact phrase from resume"},
+    "overall": 0.0-1.0
+  }
+}
+
+Skill match rules:
+- STRONG implicit inference required — do not penalise candidates for not spelling \
+out fundamentals that are obviously demonstrated:
+  - Any Python project or ML work → data types and basic data structures are \
+prerequisite knowledge. Confidence >= 0.85.
+  - Any Python framework (Django, Flask, FastAPI, PyTorch, TensorFlow, Keras, \
+scikit-learn) → OOP is required to use them. Confidence >= 0.85.
+  - Git mentioned or any team/open-source work → version control. Confidence >= 0.85.
+  - Never give 0% for a fundamental skill when the candidate has years of \
+programming experience — that is not credible.
+- confidence: 0.85-1.0 clearly demonstrated; 0.6-0.84 strongly implied; \
+0.3-0.59 weak signal; 0.0 genuinely no evidence.
+- Set matched=true when confidence >= 0.4.
+
+Seniority rules:
+- If the candidate is MORE experienced than the role requires, treat them as \
+OVERQUALIFIED — score seniority_alignment 0.9-1.0, note "Overqualified — brings \
+more than required". Never penalise excess experience.
+- Only score seniority low if the candidate is clearly UNDER-qualified.
+
+Evidence fields must be copied word-for-word from the resume. Do not paraphrase.
+"""
+
+
+def score_all_dimensions(
+    resume_text: str,
+    jd_text: str,
+    jd_skills: list[str],
+) -> tuple[float, dict, float, dict, float, dict]:
+    """Score skill, experience, and culture match in a single LLM call.
+
+    Returns (skill_score, skill_details, exp_score, exp_details, cult_score, cult_details).
+    """
+    user_content = (
+        f"## Required Skills\n{json.dumps(jd_skills)}\n\n"
+        f"## Job Description\n{jd_text}\n\n"
+        f"## Resume\n{resume_text}"
+    )
+    result = _llm_json_request(COMBINED_SCORING_SYSTEM_PROMPT, user_content)
+
+    # Skill
+    skill_details = result.get("skill_match", {})
+    skills_list = skill_details.get("skills", [])
+    if skills_list:
+        skill_score = sum(s.get("confidence", 0.0) for s in skills_list) / len(skills_list)
+    else:
+        skill_score = 0.0
+
+    # Experience
+    exp_details = result.get("experience_match", {})
+    exp_score = float(exp_details.get("overall", 0.0))
+
+    # Culture
+    cult_details = result.get("culture_match", {})
+    cult_score = float(cult_details.get("overall", 0.0))
+
+    return (
+        max(0.0, min(1.0, skill_score)), skill_details,
+        max(0.0, min(1.0, exp_score)), exp_details,
+        max(0.0, min(1.0, cult_score)), cult_details,
+    )
 
 
 # ---------------------------------------------------------------------------

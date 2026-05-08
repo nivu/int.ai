@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from celery.result import AsyncResult
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 
 from app.models.screening import (
     ScreeningStatusResponse,
@@ -20,9 +20,26 @@ logger = logging.getLogger("int.ai")
 router = APIRouter(prefix="/screening", tags=["screening"])
 
 
+def _require_auth(authorization: str) -> None:
+    """Verify that the caller is a valid authenticated user via Supabase JWT."""
+    from app.services.supabase import supabase as sb
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+    try:
+        sb.auth.get_user(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
 @router.post("/trigger", response_model=ScreeningTriggerResponse, status_code=202)
-async def trigger_screening(body: ScreeningTriggerRequest) -> ScreeningTriggerResponse:
+async def trigger_screening(
+    body: ScreeningTriggerRequest,
+    authorization: str = Header(...),
+) -> ScreeningTriggerResponse:
     """Enqueue a resume screening task and return immediately."""
+    _require_auth(authorization)
     result = screen_resume_task.delay(body.application_id, body.hiring_post_id)
     logger.info(
         "Screening task enqueued: task_id=%s application=%s",
