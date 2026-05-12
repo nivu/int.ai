@@ -27,7 +27,7 @@ export interface InterviewTemplate {
   };
   must_ask_topics: string[];
   is_preset: boolean;
-  preset: string | null;
+  preset_role: string | null;
   created_at: string;
   org_id: string;
 }
@@ -53,14 +53,14 @@ export default async function TemplatesPage() {
 
   if (!user) return null;
 
-  // Fetch user profile to get org_id
-  const { data: profile } = await supabase
-    .from("user_profiles")
+  // Resolve org_id from team_members
+  const { data: member } = await supabase
+    .from("team_members")
     .select("org_id")
     .eq("user_id", user.id)
     .single();
 
-  const orgId = profile?.org_id;
+  const orgId = member?.org_id;
 
   // Build query
   let query = supabase

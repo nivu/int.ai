@@ -16,6 +16,31 @@ class CreateRoomResponse(BaseModel):
     server_url: str
 
 
+class HiringPostInfo(BaseModel):
+    title: str
+    department: str | None = None
+
+
+class ApplicationInfo(BaseModel):
+    id: str
+    candidate_id: str
+    hiring_post: HiringPostInfo
+
+
+class TemplateInfo(BaseModel):
+    max_duration_minutes: int
+    max_questions: int
+
+
+class PendingSessionResponse(BaseModel):
+    id: str
+    status: str
+    deadline: datetime
+    consent_given_at: datetime | None = None
+    application: ApplicationInfo
+    template: TemplateInfo
+
+
 class ReconnectRequest(BaseModel):
     session_id: str
     reconnection_token: str

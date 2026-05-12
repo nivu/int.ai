@@ -166,7 +166,7 @@ export default function TemplatesClient({
             scoring_weights: template.scoring_weights,
             must_ask_topics: template.must_ask_topics,
             is_preset: false,
-            preset: template.preset,
+            preset_role: template.preset_role,
             org_id: orgId,
           })
           .select()
@@ -221,7 +221,7 @@ export default function TemplatesClient({
       foundational_ratio: t.foundational_ratio,
       scoring_weights: t.scoring_weights,
       must_ask_topics: t.must_ask_topics,
-      preset: (t.preset as TemplateFormData["preset"]) ?? "none",
+      preset: (t.preset_role as TemplateFormData["preset"]) ?? "none",
     };
   }
 
@@ -286,7 +286,7 @@ export default function TemplatesClient({
                       <td className="py-3 pr-4">
                         {template.is_preset ? (
                           <Badge variant="default">
-                            {template.preset ?? "Preset"}
+                            {template.preset_role ?? "Preset"}
                           </Badge>
                         ) : (
                           <span className="text-muted-foreground">-</span>

@@ -81,7 +81,26 @@ async def submit_application(body: SubmitApplicationRequest) -> SubmitApplicatio
         logger.exception("Failed to upsert candidate")
         raise HTTPException(status_code=500, detail=f"Failed to save candidate: {exc}") from exc
 
-    # 2. Check for duplicate application
+    # 2. Verify hiring post exists and is published
+    try:
+        post_resp = (
+            sb.table("hiring_posts")
+            .select("status")
+            .eq("id", body.hiring_post_id)
+            .limit(1)
+            .execute()
+        )
+        if not post_resp.data:
+            raise HTTPException(status_code=404, detail="Position not found.")
+        if post_resp.data[0].get("status") != "published":
+            raise HTTPException(status_code=403, detail="This position is not currently accepting applications.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to verify hiring post")
+        raise HTTPException(status_code=500, detail="Could not verify position.") from exc
+
+    # 3. Check for duplicate application
     try:
         dup_resp = (
             sb.table("applications")

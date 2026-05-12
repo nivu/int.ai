@@ -1,5 +1,8 @@
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+// All backend calls are routed through the Next.js /api/proxy catch-all route
+// so the browser never makes a direct request to the backend server.
+function resolveUrl(path: string): string {
+  return `/api/proxy${path}`;
+}
 
 interface ProblemDetail {
   type: string;
@@ -35,18 +38,23 @@ export async function backendFetch<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${BACKEND_URL}${path}`, {
+  const response = await fetch(resolveUrl(path), {
     ...fetchOptions,
     headers,
   });
 
   if (!response.ok) {
-    const problem: ProblemDetail = await response.json().catch(() => ({
-      type: "https://int.ai/errors/unknown",
-      title: "Request Failed",
-      status: response.status,
-      detail: response.statusText,
-    }));
+    const body = await response.json().catch(() => null);
+    const fallbackTitle =
+      typeof body?.detail === "string" && body.detail.trim().length > 0
+        ? body.detail
+        : "Request Failed";
+    const problem: ProblemDetail = {
+      type: body?.type ?? "https://int.ai/errors/unknown",
+      title: body?.title ?? fallbackTitle,
+      status: response.status, // always use the real HTTP status code
+      detail: body?.detail ?? response.statusText,
+    };
     throw new BackendError(problem);
   }
 

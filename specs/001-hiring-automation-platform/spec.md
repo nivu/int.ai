@@ -327,7 +327,600 @@ jobs, and verify the recruiter sees only their assigned jobs.
   Last-write-wins with a warning. The second admin sees a notification
   that the post was recently modified by another user.
 
+## Interview Session Behavior *(mandatory)*
+
+These rules define the exact behavior of the AI voice interview session. All implementations must strictly adhere to these requirements.
+
+### Timer Behavior
+
+**TIMER START**
+- The 15-second countdown begins when the agent finishes speaking a question and transitions to "listening" state.
+- This occurs immediately after the text-to-speech audio ends.
+- The timer MUST NOT start before the audio begins or while the audio is playing.
+- The timer MUST NOT start on question load or text display.
+
+**TIMER FREEZE ON SPEECH**
+- The moment the candidate begins speaking (detected by Voice Activity Detection), the timer MUST freeze immediately.
+- The elapsed time is snapshotted and the remaining time is preserved.
+- The timer MUST remain frozen for the entire duration the candidate is speaking.
+- No countdown progression is allowed while speech is detected.
+
+**GRACE PERIOD AFTER SPEECH**
+- When the candidate stops speaking, a 3-second grace period begins automatically.
+- During the grace period, the timer remains hidden and does not count down.
+- The grace period allows for natural thinking pauses and prevents premature advancement.
+- If the candidate starts speaking again during the grace period, the grace period is cancelled and the timer remains frozen.
+
+**SMART ADVANCEMENT AFTER GRACE PERIOD**
+- After the 3-second grace period ends, the system checks the word count of the candidate's answer:
+  - **0-5 words**: Insufficient for a complete answer. Timer resumes from the remaining time.
+  - **6-15 words**: Partial answer. System waits 4 seconds of confirmation silence before advancing.
+  - **16-30 words**: Moderate answer. System waits 3 seconds of confirmation silence before advancing.
+  - **31+ words**: Complete answer. System waits 2 seconds of confirmation silence before advancing.
+- If the candidate speaks again during confirmation silence, the advancement is cancelled and the grace period restarts.
+- This tiered approach prevents cutting off candidates mid-thought while ensuring natural conversation flow.
+
+**TIMER RESUME (INSUFFICIENT WORDS)**
+- If the candidate spoke fewer than 6 words, the timer resumes from wherever it was frozen.
+- The timer continues counting down from the remaining time (not reset to 15 seconds).
+- This cycle can repeat: candidate speaks → timer freezes → candidate stops → grace period → timer resumes.
+
+### Question Advancement
+
+**ADVANCEMENT TRIGGERS**
+- The system advances to the next question via two mechanisms:
+  1. **Timer Expiration** (Primary): Timer counts down to 0 with no speech detected.
+  2. **Confirmation Silence** (Secondary): After sufficient words (6+) and appropriate silence duration (2-4s based on word count).
+- Both mechanisms ensure the candidate has finished their answer before advancing.
+- There is no manual "next" trigger during a live question.
+- The candidate cannot skip questions.
+
+**NO RESPONSE HANDLING**
+- If the candidate never speaks and the timer reaches 0, the system logs that question as "no response."
+- The system speaks: "I didn't hear a response, so let's move on."
+- The system then fetches the next question directly from the question generator (bypassing LLM acknowledgement).
+- The next question is spoken immediately after the transition message.
+- This provides context to the candidate while maintaining interview flow.
+
+**PARTIAL RESPONSE HANDLING**
+- If the candidate spoke 1-5 words and the timer reaches 0, the system treats it as an answered question (not "no response").
+- The system uses the LLM to generate a brief acknowledgement and ask the next question.
+- This prevents the system from rudely saying "I didn't hear a response" when the candidate did speak.
+
+**QUESTION COUNT ENFORCEMENT**
+- The interview MUST ask exactly the number of questions set by the recruiter. No more, no less.
+- Once the last question is answered or times out, the interview MUST end immediately.
+- The system MUST NOT loop, add filler questions, or extend the session.
+
+### Audio-Text Synchronization
+
+**CONVERSATIONAL FLOW**
+- When a candidate provides a sufficient answer (6+ words with confirmation silence), the system uses the LLM to generate a natural transition.
+- The LLM generates: "That's a great point about X. Let me ask you about Y..." (brief acknowledgement + next question).
+- The `session.say()` function speaks this text via TTS.
+- The spoken text is automatically extracted and displayed on screen.
+- This maintains natural, conversational interview flow rather than robotic question delivery.
+
+**ATOMIC AUDIO-TEXT DELIVERY**
+- The `session.say()` function handles both audio playback and text extraction atomically.
+- Text display is derived from the audio content, ensuring perfect synchronization.
+- Text appears as the audio begins speaking and matches exactly what is being spoken.
+
+### Repeat Request Handling
+
+**REPEAT FUNCTIONALITY**
+- Candidates can request a question repeat by saying phrases like "repeat," "say that again," "can you repeat," etc.
+- The system detects repeat requests if the utterance is ≤15 words and contains a repeat phrase.
+- **First repeat**: The system interrupts itself and repeats the question verbatim.
+- **Second repeat**: The system responds "I can only repeat each question once — please go ahead and answer."
+- The timer remains paused at its current value during repeat requests (not reset).
+- Repeat allowance resets for each new question.
+
+### Session Integrity
+
+**TAB SWITCH DETECTION**
+- If the candidate switches to any other tab at any point during the interview, the system MUST terminate the interview session immediately.
+- The termination MUST be logged as a violation with status "terminated_tab_switch."
+- The end state MUST be the same as a completed interview (no retake allowed).
+- The candidate MUST NOT be able to resume or restart the interview.
+- A termination email is sent to the candidate explaining the violation.
+
+**REFRESH / BACK NAVIGATION = PERMANENT EXIT**
+- If the candidate refreshes the page or navigates back during an active interview, the session MUST be permanently closed.
+- The `beforeunload` event clears `sessionStorage` synchronously to prevent re-entry.
+- On reload or back navigation, the candidate MUST always land on the portal page (not the interview room).
+- Under no circumstances MUST the platform allow the candidate to re-enter or retake the same interview once a session has started.
+- This is a hard rule with no exceptions.
+- The system MUST NOT implement any resume, rejoin, or retry logic for started sessions.
+
+**RECONNECTION WINDOW (EXCEPTION)**
+- If the candidate disconnects due to network issues (not tab switch or refresh), they have a 5-minute window to reconnect.
+- The session state is preserved during this window.
+- If they reconnect within 5 minutes, the interview resumes from where it left off.
+- If they do not reconnect within 5 minutes, the partial interview is evaluated on available answers.
+
+### Interview Closing
+
+**LAST QUESTION HANDLING**
+- When the last question is answered or times out, the system sends an "interview_closing" event to the frontend.
+- The frontend clears the timer and displays a "Wrapping up your interview..." banner.
+- The system speaks a goodbye message: "That was the last question. Thank you for your time and thoughtful responses. The interview is now complete. We'll be in touch soon. Goodbye!"
+- The system waits 3 seconds for the TTS audio to fully play before disconnecting.
+- The frontend then shows an "Interview Complete" screen and redirects to the portal.
+
+## Implementation Constraints *(mandatory)*
+
+These are hard rules that must be followed every time code is written or modified for this platform. These constraints serve as evaluation criteria for all implementations.
+
+### A. MODULE ISOLATION
+
+- Every feature MUST live in its own file/module.
+- Timer logic, speech detection, tab guard, audio playback, and interview orchestration MUST be clearly separated.
+- When adding a feature, identify which module owns it and only touch that file when possible.
+- Clear separation of concerns is mandatory.
+
+**Current Module Structure:**
+- `backend/app/interview/entrypoint.py` - Interview orchestration, state machine, timer management, event handlers
+- `backend/app/interview/agent.py` - LiveKit agent configuration, STT/TTS/LLM setup, VAD settings
+- `backend/app/interview/question_gen.py` - Dynamic question generation, conversation history
+- `frontend/components/candidate/interview-room.tsx` - Interview UI, timer display, state management
+- `frontend/app/(candidate)/interview/session/page.tsx` - Session validation, navigation guards
+
+### B. NO SILENT REGRESSIONS
+
+- Before modifying any file, explicitly state which functions or behaviors in that file are currently working and must not change.
+- After modification, verify that those functions are still intact.
+- If a working feature breaks as a result of a change, that is a failed implementation regardless of whether the new feature works.
+- All existing functionality must be preserved unless explicitly marked for removal.
+
+### C. STATE OWNERSHIP
+
+- There MUST be one single source of truth for interview session state.
+- The backend (`entrypoint.py`) owns the authoritative state:
+  - Current question index (`_qa_number`)
+  - Timer value (`_timer_remaining`)
+  - Speech active flag (`_user_state`)
+  - Session status (`_interview_phase`, `_awaiting_close`)
+  - Grace period state (`_grace_task`)
+- The frontend maintains derived state for UI rendering:
+  - `userSpeaking` - Derived from backend `user_speaking` events
+  - `graceActive` - Derived from backend `grace_period_started` events
+  - `noResponseSecondsLeft` - Derived from backend `timer_started` events
+  - `interviewActive` - Derived from backend `question_progress` events
+- All state changes flow from backend to frontend via data channel events.
+- Frontend never modifies authoritative state; it only renders derived state.
+
+### D. TIMER IS DRIVEN BY AUDIO AND SPEECH EVENTS ONLY
+
+- The timer MUST be controlled by specific events only:
+  - **Start**: Agent state changes to "listening" (after TTS audio ends)
+  - **Freeze**: User state changes to "speaking" (VAD detects speech)
+  - **Resume**: Grace period ends with insufficient words (<6 words)
+  - **Expire**: Timer countdown reaches 0
+- The timer MUST NOT be started, stopped, or modified by:
+  - UI events
+  - Component mounts
+  - Side effects
+  - Manual triggers
+- This is a strict event contract enforced by the backend state machine.
+
+### E. SESSION TERMINATION IS ONE-WAY
+
+- Once a session is marked as terminated (by tab switch, refresh, back navigation, or natural completion), it MUST NOT be reopened, resumed, or reset by any code path.
+- The session record is created in the database when the session starts with status "in_progress."
+- Termination updates the status to "completed," "terminated_tab_switch," or "terminated_abandoned."
+- Any route or page load MUST check the session status before rendering the interview UI.
+- A terminated session is permanent and irreversible.
+- **Exception**: Network disconnections allow 5-minute reconnection window (not tab switch or refresh).
+
+### F. CONVERSATIONAL FLOW VIA LLM
+
+- When a candidate provides a sufficient answer (6+ words with confirmation silence), the system uses the LLM to generate natural transitions.
+- The LLM generates brief acknowledgements followed by the next question in a single conversational turn.
+- The `session.say()` function delivers both audio and text atomically.
+- For no-response scenarios, the system bypasses the LLM and uses hardcoded transitions to maintain efficiency.
+- This approach balances natural conversation flow with system performance.
+
+### G. QUESTION BOUNDARY IS FINAL
+
+- The question list is generated dynamically during the interview based on:
+  - Candidate's resume
+  - Job description
+  - Conversation history (to avoid repetition)
+  - Foundational vs. project-based split (60/40)
+- Each question is generated when needed (not pre-generated).
+- The question index increments exactly once per question, only when advancement occurs.
+- There is no skip, no jump, no reorder.
+- The question sequence is determined by the question generator's logic and conversation history.
+
+### H. BEFORE YOU WRITE ANY CODE
+
+Before implementing any feature or fix, the following process MUST be followed:
+
+1. Read this SPEC.md in full.
+2. List every file you plan to modify.
+3. State what is currently working in each of those files that you will preserve.
+4. Only then proceed with implementation.
+5. If the task requires touching more than 3 files, flag it and ask for confirmation before proceeding.
+
+This process ensures that changes are deliberate, scoped, and do not introduce regressions.
+
+### I. GRACE PERIOD AND SMART ADVANCEMENT
+
+- The grace period system (3s + tiered confirmation silence) is a core feature that MUST be preserved.
+- This system prevents premature advancement and allows natural conversation flow.
+- The tiered silence thresholds (2-4s based on word count) are carefully tuned and MUST NOT be modified without extensive testing.
+- Any changes to grace period logic require approval and testing with real candidates.
+
+### J. EVENT-DRIVEN ARCHITECTURE
+
+- The interview system uses an event-driven architecture with clear event contracts:
+  - Backend publishes events via LiveKit data channel
+  - Frontend subscribes to events and updates UI accordingly
+  - Events include: `timer_started`, `grace_period_started`, `timer_resumed`, `user_speaking`, `agent_speaking`, `question_progress`, `interview_closing`, `session_end`, `terminated`
+- All new features MUST follow this event-driven pattern.
+- Direct state manipulation is prohibited; all state changes MUST flow through events.
+
 ## Requirements *(mandatory)*
+
+## Candidate Management Table
+
+### Feature Overview and Purpose
+
+This feature adds a net-new recruiter-facing candidate management section on
+the job detail page to let recruiters:
+- view all candidates for the current job posting,
+- search and filter candidates by status and profile details, and
+- send scoped bulk emails to either shortlisted candidates or interview
+  rejected candidates.
+
+The feature improves recruiter throughput without changing existing job detail
+content above this section.
+
+### Exact Location on Page
+
+The section is rendered on the recruiter job detail page, directly below the
+existing `Scoring Weights` section.
+
+No existing UI above that boundary may be modified, replaced, or reordered:
+- Job title / status / Edit / Close controls
+- Stat cards (Applications, Experience, Screening Threshold)
+- Share Link
+- Job Description
+- Required Skills
+- Scoring Weights
+
+This feature does not alter the Jobs list page, its table, or the row-level
+`View` button behavior.
+
+### Scope and Data Boundary
+
+- Candidate data is scoped strictly by the current job posting ID already in
+  job detail page context.
+- Every fetch, search, filter, recipient derivation, and email send action is
+  constrained by that job posting ID.
+- Candidates from other jobs must never be rendered or targeted for email.
+
+### UI Structure and Layout
+
+Section layout (top to bottom):
+1. Section header (title + optional summary count for current filtered view).
+2. Top controls row:
+   - Left: debounced search input
+   - Right: status filter dropdown, bulk shortlisted email button, bulk
+     interview-rejected email button
+3. Candidate table:
+   - Columns in exact order:
+     `Name | Email | Job | Key Skills | Overall | Status`
+4. Table footer:
+   - pagination controls and page size selector
+5. Modal layer (conditionally rendered):
+   - `Email Shortlisted Candidates` modal
+   - `Email Interview Rejected Candidates` modal
+
+Responsive behavior:
+- Horizontal overflow is handled gracefully; table remains usable on narrow
+  widths.
+- Column content truncates/wraps safely without layout breakage.
+
+### Candidate Table Behavior
+
+- Pagination is enabled once candidate count exceeds configured page size.
+- Pagination state persists during ordinary page navigation.
+- Pagination resets to page 1 on search query change.
+- Pagination resets to page 1 on status filter change.
+- Loading state blocks controls and shows loading indicator.
+- During reloads, stale rows are not displayed.
+- Empty states are distinct:
+  - No candidates for this job at all.
+  - Candidates exist but none match current search/filter.
+
+### Search Behavior
+
+- Search box is positioned at top-left above the table.
+- Search is case-insensitive.
+- Search fields: candidate name, candidate email, key skills.
+- Input is debounced (target 300ms).
+- Search runs against in-memory already-loaded candidates where possible.
+- Search does not trigger API fetch per keystroke.
+- Search preserves active status filter.
+- Search changes reset pagination to page 1.
+- Clearing search restores full list under current status filter.
+
+### Status Filter Behavior
+
+Dropdown values (exact order):
+1. All Statuses
+2. Applied
+3. Screened
+4. Interview Sent
+5. Interviewed
+6. Shortlisted
+7. Resume Rejected
+8. Interview Rejected
+
+Rules:
+- Default selection: `All Statuses`.
+- Filter applies immediately.
+- Filter composes with active search query.
+- Filter selection persists across pagination.
+- Filter changes reset pagination to page 1.
+- Switching back to `All Statuses` restores full searched list.
+
+### Bulk Email Controls
+
+Top-right controls include:
+1. Status filter dropdown
+2. Button: `Send Bulk Email to Shortlisted Candidates`
+3. Button: `Send Bulk Email to Rejected Candidates`
+
+#### Shortlisted Button Rules
+
+- Recipients: candidates with status `Shortlisted` only.
+- If recipient count is 0:
+  - button disabled
+  - tooltip: `No shortlisted candidates for this role`
+- If recipient count > 0:
+  - button enabled
+  - opens shortlisted email modal
+
+#### Interview Rejected Button Rules
+
+- Recipients: candidates with status `Interview Rejected` only.
+- `Resume Rejected` is explicitly excluded from this action.
+- If recipient count is 0:
+  - button disabled
+  - tooltip: `No interview rejected candidates for this role`
+- If recipient count > 0:
+  - button enabled
+  - opens rejected email modal
+
+### Email Modal Structure and Behavior
+
+Shortlisted modal:
+- Header: `Email Shortlisted Candidates`
+- Recipient line example: `Sending to 6 Shortlisted candidates`
+
+Rejected modal:
+- Header: `Email Interview Rejected Candidates`
+- Recipient line example: `Sending to 3 Interview Rejected candidates`
+
+Both modals include:
+- Required subject input
+- Required body textarea
+- Attachment upload
+  - accepts images, PDFs, and document files
+  - supports multiple files
+  - shows file name + remove action per file
+- `Send` action
+  - disabled until subject and body are non-empty
+  - loading state while sending
+  - success: close modal + show success notification
+  - failure: keep modal open + show inline error + preserve draft
+- `Cancel` action
+  - closes modal
+  - discards draft content
+  - no send call
+
+### Recipient Derivation Logic
+
+- Recipients are derived from already-loaded in-memory candidate source list
+  at click/send time.
+- Recipient derivation must not trigger a fresh API fetch.
+- Recipient subset always includes the current job posting ID constraint.
+- Recipient subsets:
+  - shortlisted flow: status == `Shortlisted`
+  - rejected flow: status == `Interview Rejected`
+
+### Email Delivery and Transport Requirement
+
+- Bulk email send uses the project's existing configured production email
+  transport.
+- No mock/stub/simulated transport is allowed for this flow.
+- Sends are real and must reach recipient inboxes.
+
+### Single Source of Truth and State Ownership Map
+
+All feature state is owned at the feature container level (job detail page
+candidate management feature controller). UI subcomponents are render-only and
+receive props/callbacks; they do not own duplicate business state.
+
+| State Variable | Type | Owner | Writable By |
+|---|---|---|---|
+| `sourceCandidates` | `Candidate[]` | Feature container | Candidate data service fetch success handler only |
+| `derivedCandidates` | `Candidate[]` (computed) | Derived selector layer | Read-only derived from source + query + filter |
+| `searchQuery` | `string` | Feature container | Search controller only |
+| `debouncedSearchQuery` | `string` | Feature container | Debounce controller only |
+| `statusFilter` | `CandidateStatusFilter` | Feature container | Filter controller only |
+| `pagination.page` | `number` | Feature container | Pagination/search/filter controllers |
+| `pagination.pageSize` | `number` | Feature container | Pagination controller only |
+| `isCandidatesLoading` | `boolean` | Feature container | Candidate fetch lifecycle only |
+| `candidatesLoadError` | `string \\| null` | Feature container | Candidate fetch lifecycle only |
+| `isShortlistedModalOpen` | `boolean` | Feature container | Modal controller only |
+| `isRejectedModalOpen` | `boolean` | Feature container | Modal controller only |
+| `emailDraft.kind` | `"shortlisted" \\| "rejected" \\| null` | Feature container | Modal open handlers only |
+| `emailDraft.subject` | `string` | Feature container | Email compose controller only |
+| `emailDraft.body` | `string` | Feature container | Email compose controller only |
+| `emailDraft.attachments` | `AttachmentDraft[]` | Feature container | Attachment controller only |
+| `isEmailSending` | `boolean` | Email orchestration layer | Email send lifecycle only |
+| `emailSendError` | `string \\| null` | Email orchestration layer | Email send lifecycle only |
+| `emailSendSuccess` | `boolean` | Email orchestration layer | Email send lifecycle only |
+
+### Layer Boundaries and Architecture
+
+Strict separation:
+- UI components:
+  - render table, controls, modals, and visual states only
+  - emit interaction callbacks
+  - contain no candidate filtering/search/business orchestration logic
+- Feature state/controller layer:
+  - owns source state, derived selectors, pagination, modal state, compose
+    state, and interaction reducers
+- Candidate data service layer:
+  - all candidate fetch calls
+  - API request/response mapping
+- Email orchestration layer:
+  - recipient derivation from in-memory state
+  - payload assembly (subject/body/attachments/recipients/job ID)
+  - delivery invocation via existing transport endpoint
+  - success/error state transitions
+- API layer:
+  - receives scoped requests
+  - validates job ID and recipient scopes
+  - delegates to configured email transport provider
+
+Prohibitions:
+- No duplicate candidate list copies across parent/child.
+- No business logic inside table or modal visual components.
+- No recipient lookup API call at send time.
+
+### Complete Event Flow (Recruiter Action to Outcome)
+
+#### Candidate Table Load
+1. Job detail page mounts with `jobPostingId`.
+2. Candidate data service fetches candidates for that `jobPostingId`.
+3. Feature container sets loading true, disables controls.
+4. On success, updates `sourceCandidates`, computes derived list, enables
+   controls.
+5. On failure, sets error state and recovery CTA.
+
+#### Search Flow
+1. Recruiter types search text.
+2. `searchQuery` updates immediately; debounce timer starts.
+3. On debounce settle, `debouncedSearchQuery` updates.
+4. Derived selector recomputes filtered list using status + search.
+5. Pagination resets to page 1.
+6. Table rerenders matching rows or contextual empty state.
+
+#### Filter Flow
+1. Recruiter selects status in dropdown.
+2. `statusFilter` updates.
+3. Derived selector recomputes using current debounced search query.
+4. Pagination resets to page 1.
+5. Table rerenders matching rows.
+
+#### Shortlisted Bulk Email End-to-End
+1. Recruiter clicks `Send Bulk Email to Shortlisted Candidates`.
+2. Controller derives recipients from in-memory scoped list:
+   status == `Shortlisted`.
+3. If none, button remains disabled with tooltip.
+4. If recipients exist, modal opens showing recipient count.
+5. Recruiter enters subject/body, uploads attachments.
+6. `Send` enabled only when required fields are filled.
+7. On click `Send`, email orchestration layer:
+   - validates draft
+   - builds payload with `jobPostingId`, recipients, draft, attachments
+   - sends via existing transport API
+8. Success path:
+   - show success notification
+   - close modal
+   - clear compose state
+9. Failure path:
+   - keep modal open
+   - show inline error
+   - preserve subject/body/attachments for retry
+
+#### Interview Rejected Bulk Email End-to-End
+1. Recruiter clicks `Send Bulk Email to Rejected Candidates`.
+2. Controller derives recipients from in-memory scoped list:
+   status == `Interview Rejected` only.
+3. Explicit exclusion enforced for `Resume Rejected`.
+4. If none, button disabled with tooltip.
+5. If recipients exist, modal opens showing recipient count.
+6. Recruiter composes subject/body, adds attachments.
+7. Send lifecycle mirrors shortlisted flow (validation, loading, send,
+   success/error handling).
+
+### Loading States
+
+- Candidate list fetch in progress:
+  - table skeleton/spinner shown
+  - search/filter/buttons/pagination disabled
+  - no stale rows rendered
+- Email send in progress:
+  - send button shows loading state
+  - submit action locked to prevent double send
+  - compose inputs may remain visible but submission controls are guarded
+- Attachment upload in progress:
+  - per-file upload progress/processing indicator
+  - failed files are flagged without wiping valid draft data
+
+### Error States and Recovery
+
+- Candidate fetch failure:
+  - inline error message
+  - retry action re-triggers scoped fetch
+- Attachment upload failure:
+  - file-level error message
+  - remove/retry failed file supported
+  - existing subject/body and other files preserved
+- Email send failure:
+  - modal-level inline error
+  - modal remains open
+  - all draft fields preserved
+  - recruiter can retry send without retyping
+
+### Edge Cases
+
+- No candidates for this job posting:
+  - render empty state: no candidates yet for this role
+- Candidates exist, but search/filter yields none:
+  - render contextual empty state: no matches for current criteria
+- No shortlisted candidates:
+  - shortlisted bulk button disabled with required tooltip
+- No interview rejected candidates:
+  - rejected bulk button disabled with required tooltip
+- Email send fails mid-flight:
+  - preserve draft and attachments where possible
+  - expose retry path in same modal
+- Attachment upload failure:
+  - isolate failed file, do not lose entire draft
+
+### Step-by-Step Recruiter Interaction Walkthrough
+
+#### Walkthrough A: Email Shortlisted Candidates
+1. Recruiter opens a job detail page by clicking `View` from Jobs list.
+2. Scrolls below `Scoring Weights` to Candidate Management Table.
+3. Optionally narrows candidates via search/filter.
+4. Clicks `Send Bulk Email to Shortlisted Candidates`.
+5. Confirms recipient count shown in modal.
+6. Writes subject/body and adds optional attachments.
+7. Clicks `Send`.
+8. Sees loading.
+9. On success, sees confirmation and modal closes; on failure, error appears
+   and draft remains for retry.
+
+#### Walkthrough B: Email Interview Rejected Candidates
+1. Recruiter opens same section on the same job detail page.
+2. Optionally uses search/filter for visibility (recipient logic remains status
+   constrained).
+3. Clicks `Send Bulk Email to Rejected Candidates`.
+4. Confirms recipient count for `Interview Rejected` candidates only.
+5. Writes subject/body and adds optional attachments.
+6. Clicks `Send`.
+7. Sees loading.
+8. On success, receives success notification and modal closes; on failure,
+   modal remains open with preserved content for retry.
 
 ### Functional Requirements
 
@@ -465,3 +1058,356 @@ jobs, and verify the recruiter sees only their assigned jobs.
   Multi-language support is a future enhancement.
 - Shareable report links for hiring managers are time-limited (e.g., 7
   days) and do not require authentication.
+
+
+## AI Interview Summary *(mandatory)*
+
+This section defines the AI-generated interview summary feature that appears in the candidate interview view, providing recruiters with a quick, comprehensive overview of the interview session.
+
+### Feature Overview
+
+The AI Interview Summary is an automatically generated summary of a candidate's interview session that appears at the top of the interview view, above the existing transcript. It provides recruiters with a quick understanding of the candidate's performance without requiring them to read the entire transcript.
+
+**Purpose:**
+- Accelerate recruiter decision-making by providing key insights at a glance
+- Highlight strengths, concerns, and notable moments from the interview
+- Provide an overall recommendation sentiment to guide next steps
+
+**Scope Boundaries:**
+- This is a strictly additive feature
+- No existing UI elements, routes, or components are modified
+- The summary appears above the transcript without altering transcript display
+- Summary generation occurs on-demand when the interview view is opened
+
+### Exact Location and Placement
+
+**Page Context:**
+- Route: `/recruiter/candidates/[candidateId]/interview` (or similar interview detail route)
+- Triggered by: Clicking on a candidate row in the Candidates table
+- Current view: Shows interview transcript for the selected candidate
+
+**Placement:**
+- The AI Interview Summary card appears **at the very top** of the interview view
+- Positioned **directly above** the existing interview transcript
+- No other UI elements are moved, reordered, or modified
+- The transcript remains in its current position and styling
+
+**Visual Hierarchy:**
+```
+┌─────────────────────────────────────────────────────────┐
+│ AI Interview Summary                                    │
+│ [Summary content generated by LLM]                      │
+└─────────────────────────────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│ Interview Transcript (existing, unchanged)              │
+│ [Existing transcript display]                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+### UI Structure and Layout
+
+**Summary Card:**
+- **Title**: "AI Interview Summary" (clear, prominent heading)
+- **Container**: Card or panel with subtle background color (e.g., light blue/gray tint)
+- **Border**: Subtle border to visually distinguish from transcript
+- **Padding**: Adequate spacing (16-24px) for readability
+- **Typography**: 
+  - Title: Bold, slightly larger than body text
+  - Content: Regular weight, comfortable line height (1.6-1.8)
+  - Sections: Use bold labels for each summary section
+
+**Loading State:**
+- Display skeleton loader or spinner while summary is being generated
+- Show text: "Generating AI summary..." or similar
+- Disable any interactive elements during loading
+- Loading indicator should be visually centered in the summary card area
+
+**Error State:**
+- If summary generation fails, show error message in the summary card
+- Message: "Unable to generate summary. Please try again later."
+- Optionally include a "Retry" button
+- Do not block access to the transcript if summary fails
+
+**Empty State:**
+- If no transcript exists (interview not completed), show message:
+  "Interview summary will be available after the interview is completed."
+
+### Summary Content Requirements
+
+The AI summary is generated by passing the full interview transcript to an LLM with a structured prompt. The summary must include the following sections:
+
+**1. Overall Performance (2-3 sentences)**
+- High-level assessment of the candidate's interview performance
+- General impression of communication skills and engagement
+- Overall readiness for the role
+
+**2. Key Strengths (3-5 bullet points)**
+- Technical skills demonstrated effectively
+- Strong answers or impressive knowledge areas
+- Positive behavioral indicators (e.g., problem-solving approach, enthusiasm)
+
+**3. Areas of Concern (2-4 bullet points)**
+- Knowledge gaps or weak responses
+- Communication issues or unclear explanations
+- Red flags or concerns that need follow-up
+
+**4. Notable Responses (2-3 bullet points)**
+- Standout answers (positive or negative)
+- Unique insights or approaches mentioned by the candidate
+- Memorable moments that distinguish this candidate
+
+**5. Overall Recommendation (1-2 sentences)**
+- Clear sentiment: "Strong Recommend" / "Recommend with Reservations" / "Do Not Recommend"
+- Brief justification for the recommendation
+- Suggested next steps (e.g., "Advance to technical round" / "Needs further evaluation")
+
+### LLM Prompt Structure
+
+**System Prompt:**
+```
+You are an expert technical recruiter analyzing interview transcripts. Your task is to provide a comprehensive, objective summary of the candidate's interview performance. Focus on technical accuracy, communication clarity, problem-solving ability, and cultural fit indicators.
+
+Be honest and balanced in your assessment. Highlight both strengths and weaknesses. Your summary will help recruiters make informed decisions about advancing candidates.
+```
+
+**User Prompt Template:**
+```
+Analyze the following interview transcript and provide a comprehensive summary.
+
+Job Title: {job_title}
+Candidate Name: {candidate_name}
+
+Interview Transcript:
+{full_transcript}
+
+Provide a structured summary with the following sections:
+
+1. Overall Performance: A 2-3 sentence high-level assessment
+2. Key Strengths: 3-5 bullet points of demonstrated strengths
+3. Areas of Concern: 2-4 bullet points of weaknesses or gaps
+4. Notable Responses: 2-3 bullet points of standout moments
+5. Overall Recommendation: Clear sentiment (Strong Recommend / Recommend with Reservations / Do Not Recommend) with brief justification
+
+Format your response in markdown with clear section headers.
+```
+
+**LLM Configuration:**
+- Model: GPT-4 or Claude (whichever is configured for the platform)
+- Temperature: 0.3 (lower temperature for more consistent, objective summaries)
+- Max tokens: 800-1000 (sufficient for comprehensive summary)
+- Response format: Markdown text
+
+### API Endpoint Specification
+
+**Endpoint:** `GET /api/v1/interview/{session_id}/summary`
+
+**Path Parameters:**
+- `session_id` (string, required): The unique identifier of the interview session
+
+**Response (Success - 200 OK):**
+```json
+{
+  "session_id": "uuid",
+  "summary": "markdown-formatted summary text",
+  "generated_at": "2026-05-08T10:30:00Z",
+  "model_used": "gpt-4"
+}
+```
+
+**Response (Error - 404 Not Found):**
+```json
+{
+  "detail": "Interview session not found"
+}
+```
+
+**Response (Error - 400 Bad Request):**
+```json
+{
+  "detail": "Interview not completed - transcript not available"
+}
+```
+
+**Response (Error - 500 Internal Server Error):**
+```json
+{
+  "detail": "Failed to generate summary"
+}
+```
+
+**Behavior:**
+- Summary is generated on-demand when the endpoint is called
+- No caching or persistence required (generate fresh each time)
+- If transcript is empty or interview not completed, return 400 error
+- If LLM call fails, return 500 error with appropriate message
+
+### State Management
+
+**Frontend State Variables:**
+```typescript
+{
+  // Summary state
+  summary: string | null,              // The generated summary markdown
+  isSummaryLoading: boolean,           // Loading state during generation
+  summaryError: string | null,         // Error message if generation fails
+  
+  // Existing state (unchanged)
+  transcript: string,                  // Existing transcript data
+  // ... other existing state variables
+}
+```
+
+**State Flow:**
+1. Component mounts → Set `isSummaryLoading = true`
+2. Fetch summary from API → `GET /api/v1/interview/{session_id}/summary`
+3. On success → Set `summary = response.summary`, `isSummaryLoading = false`
+4. On error → Set `summaryError = error.message`, `isSummaryLoading = false`
+5. Render summary card with appropriate state (loading / content / error)
+
+**State Ownership:**
+- Summary state is owned by the interview view component
+- No global state or context required
+- Summary is fetched independently of transcript data
+- Transcript loading and display logic remain unchanged
+
+### Loading States and Error Handling
+
+**Loading State:**
+- Display immediately when component mounts
+- Show skeleton loader or spinner in summary card area
+- Text: "Generating AI summary..."
+- Duration: Typically 2-5 seconds (LLM response time)
+- Transcript remains visible and accessible during loading
+
+**Success State:**
+- Display summary markdown in the card
+- Summary is formatted with proper headings and bullet points
+- Sections are clearly delineated
+- Recommendation sentiment is visually highlighted (e.g., color-coded badge)
+
+**Error State:**
+- Display error message in summary card
+- Message: "Unable to generate summary. Please try again later."
+- Optionally include "Retry" button to re-fetch
+- Error does not block access to transcript
+- Log error details to console for debugging
+
+**Empty State (No Transcript):**
+- Display message: "Interview summary will be available after the interview is completed."
+- Show placeholder card with muted styling
+- Do not attempt to call the API if interview status is not "completed"
+
+### Architectural Constraints
+
+**Additive Only - No Modifications:**
+- Do NOT modify existing interview view components
+- Do NOT change transcript display, styling, or layout
+- Do NOT alter routing or navigation logic
+- Do NOT modify candidate table or any other views
+- Do NOT change database schema or add new tables
+- Do NOT modify existing API endpoints
+
+**What Can Be Added:**
+- New summary card component (above transcript)
+- New API endpoint: `GET /api/v1/interview/{session_id}/summary`
+- New state variables for summary (loading, content, error)
+- New LLM service function for summary generation
+- New frontend utility for rendering markdown summary
+
+**Separation of Concerns:**
+- Summary generation logic lives in a dedicated service function
+- Summary UI component is self-contained and independent
+- Summary state does not interfere with transcript state
+- API call for summary is separate from transcript data fetching
+
+### Implementation Checklist
+
+**Backend:**
+- [ ] Create new API endpoint: `GET /api/v1/interview/{session_id}/summary`
+- [ ] Implement LLM summary generation function
+- [ ] Fetch interview transcript from database
+- [ ] Pass transcript to LLM with structured prompt
+- [ ] Return formatted summary in API response
+- [ ] Handle errors (session not found, transcript empty, LLM failure)
+
+**Frontend:**
+- [ ] Add summary state variables to interview view component
+- [ ] Fetch summary on component mount
+- [ ] Create summary card component with title and styling
+- [ ] Implement loading state (skeleton/spinner)
+- [ ] Implement error state with message
+- [ ] Implement empty state for incomplete interviews
+- [ ] Render summary markdown with proper formatting
+- [ ] Position summary card above transcript
+- [ ] Ensure transcript display remains unchanged
+
+**Testing:**
+- [ ] Test summary generation with various transcript lengths
+- [ ] Test loading state displays correctly
+- [ ] Test error handling (API failure, empty transcript)
+- [ ] Test empty state for incomplete interviews
+- [ ] Verify summary appears above transcript
+- [ ] Verify transcript display is unaffected
+- [ ] Test on different screen sizes (responsive)
+
+### Edge Cases
+
+**No Transcript Available:**
+- If interview status is not "completed", do not call the API
+- Show empty state message in summary card
+- Allow recruiter to view interview details without summary
+
+**Very Short Transcript:**
+- If transcript is < 100 words, summary may be brief
+- LLM should still provide structured output with all sections
+- Some sections may have fewer bullet points
+
+**Very Long Transcript:**
+- If transcript exceeds LLM context window, truncate intelligently
+- Prioritize keeping complete Q&A pairs rather than cutting mid-answer
+- Add note in summary: "Summary based on first N questions due to length"
+
+**LLM API Failure:**
+- Display error message in summary card
+- Log error details for debugging
+- Provide "Retry" button for user to attempt again
+- Do not block access to transcript
+
+**Slow LLM Response:**
+- Show loading state for up to 30 seconds
+- If response takes > 30 seconds, show timeout error
+- Allow user to retry or proceed without summary
+
+**Multiple Recruiters Viewing Same Interview:**
+- Each recruiter generates their own summary (no caching)
+- Summaries may vary slightly due to LLM non-determinism
+- This is acceptable and does not require synchronization
+
+### Success Criteria
+
+**Functional:**
+- Summary generates successfully for completed interviews
+- Summary appears above transcript in correct position
+- Loading state displays during generation
+- Error states handle gracefully without blocking transcript access
+- Summary content includes all required sections
+
+**Performance:**
+- Summary generation completes within 5 seconds (typical)
+- Loading state provides clear feedback to user
+- Page remains responsive during summary generation
+- Transcript loads independently of summary
+
+**User Experience:**
+- Summary is visually distinct from transcript
+- Content is readable and well-formatted
+- Recommendation sentiment is clear and actionable
+- Recruiters can quickly assess candidate without reading full transcript
+- Error messages are helpful and non-blocking
+
+**Non-Regression:**
+- Existing interview view functionality unchanged
+- Transcript display, styling, and behavior preserved
+- Navigation and routing work as before
+- No impact on other parts of the application

@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { InterviewRoom } from "@/components/candidate/interview-room";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { backendFetch } from "@/lib/api/backend";
+import { createClient } from "@/lib/supabase/client";
 
 interface RoomData {
   token: string;
@@ -24,71 +18,112 @@ export default function InterviewSessionPage() {
   const router = useRouter();
   const [roomData, setRoomData] = useState<RoomData | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // True once the room is rendered and the interview is in progress.
+  // Only while this is true do we fire the beacon and guard history.
+  const sessionActiveRef = useRef(false);
 
   useEffect(() => {
-    // Only read sessionStorage once — use a ref to prevent strict mode double-read
-    if (roomData) return;
+    let cleanupFns: Array<() => void> = [];
 
-    const raw = sessionStorage.getItem("interview_room");
-    if (!raw) {
-      router.replace("/interview");
-      return;
-    }
-
-    try {
-      const data: RoomData = JSON.parse(raw);
-      if (!data.token || !data.serverUrl || !data.sessionId) {
-        throw new Error("Incomplete room data");
+    async function validateAndInit() {
+      const raw = sessionStorage.getItem("interview_room");
+      if (!raw) {
+        // No session data — either never started or already completed/terminated.
+        // Send to portal, not back to /interview, so they can't restart.
+        router.replace("/portal");
+        return;
       }
+
+      let data: RoomData;
+      try {
+        data = JSON.parse(raw);
+        if (!data.token || !data.serverUrl || !data.sessionId) throw new Error();
+      } catch {
+        sessionStorage.removeItem("interview_room");
+        router.replace("/portal");
+        return;
+      }
+
+      // ── Server-side session status check ────────────────────────────────
+      // Re-use my-session to verify the session is still enterable.  A 403
+      // means completed / terminated → send to portal, never show interview UI.
+      try {
+        const supabase = createClient();
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        await backendFetch("/api/v1/interview/my-session", {
+          token: authSession?.access_token ?? undefined,
+        });
+      } catch (err: unknown) {
+        if ((err as { status?: number })?.status === 403) {
+          sessionStorage.removeItem("interview_room");
+          router.replace("/portal?session_ended=1");
+          return;
+        }
+        // Non-403 errors (network, etc.) — let the LiveKit room handle it.
+      }
+
       setRoomData(data);
-    } catch {
-      router.replace("/interview");
+      setChecking(false);
+
+      // ── History API: intercept back button while session is active ───────
+      window.history.pushState({ interviewActive: true }, "");
+
+      const handlePopState = () => {
+        if (!sessionActiveRef.current) return;
+        // Re-push so the URL stays on this page while we redirect
+        window.history.pushState({ interviewActive: true }, "");
+        sendAbandonBeacon(data.sessionId);
+        sessionStorage.removeItem("interview_room");
+        router.replace("/portal?session_ended=1");
+      };
+      window.addEventListener("popstate", handlePopState);
+      cleanupFns.push(() => window.removeEventListener("popstate", handlePopState));
+
+      // ── beforeunload: beacon on page refresh / tab close ────────────────
+      // ALSO clear sessionStorage synchronously so that if the user refreshes,
+      // the session page finds no data and redirects to /interview instead of
+      // re-entering the interview room.
+      const handleBeforeUnload = () => {
+        // Always clear storage on any unload — this is the key guard.
+        // Even if the session is already ended (tab violation screen, completed
+        // screen), clearing here ensures a refresh never re-enters the room.
+        sessionStorage.removeItem("interview_room");
+        if (sessionActiveRef.current) {
+          sendAbandonBeacon(data.sessionId);
+        }
+      };
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      cleanupFns.push(() => window.removeEventListener("beforeunload", handleBeforeUnload));
     }
-  }, [router, roomData]);
+
+    validateAndInit();
+    return () => cleanupFns.forEach((fn) => fn());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mark session active once room data is available AND clear storage
+  // immediately on any terminal event so a refresh can never re-enter.
+  useEffect(() => {
+    if (roomData) sessionActiveRef.current = true;
+  }, [roomData]);
+
+  // Redirect to portal on session end; clear active flag first.
+  // No ?session_ended param — the interview completed normally.
+  useEffect(() => {
+    if (completed) {
+      sessionActiveRef.current = false;
+      router.replace("/portal");
+    }
+  }, [completed, router]);
 
   const livekitUrl =
     roomData?.serverUrl ||
     process.env.NEXT_PUBLIC_LIVEKIT_URL ||
     "";
 
-  if (completed) {
-    return (
-      <div className="mx-auto max-w-lg py-12">
-        <Card>
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                className="h-7 w-7 text-emerald-600 dark:text-emerald-400"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <CardTitle className="text-xl">
-              Thank you for completing your interview!
-            </CardTitle>
-            <CardDescription className="text-base">
-              We&apos;ll review your responses and follow up soon. You can close
-              this page or return to your portal.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex justify-center">
-            <Button onClick={() => router.push("/portal")}>
-              Return to Portal
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!roomData) {
+  if (checking || !roomData || completed) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
@@ -103,8 +138,21 @@ export default function InterviewSessionPage() {
         serverUrl={livekitUrl}
         sessionId={roomData.sessionId}
         maxQuestions={roomData.maxQuestions}
-        onSessionEnd={() => setCompleted(true)}
+        onSessionEnd={() => {
+          sessionActiveRef.current = false;
+          setCompleted(true);
+        }}
       />
     </div>
+  );
+}
+
+function sendAbandonBeacon(sessionId: string) {
+  // Route through the Next.js proxy so the browser never hits the backend directly.
+  // Use a Blob with application/json so FastAPI parses the body correctly —
+  // sendBeacon sends text/plain by default which causes a 422.
+  navigator.sendBeacon(
+    "/api/proxy/api/v1/interview/terminate-abandoned",
+    new Blob([JSON.stringify({ session_id: sessionId })], { type: "application/json" })
   );
 }

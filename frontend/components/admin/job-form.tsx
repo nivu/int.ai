@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, type KeyboardEvent } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useCallback, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +44,9 @@ export interface HiringPostFormData {
     culture_match: number;
   };
   screening_threshold: number;
-  interview_template_id: string;
+  // interview settings
+  max_questions: number;
+  max_duration_minutes: number;
   // publish settings
   publish_now: boolean;
   scheduled_publish_at: string;
@@ -78,7 +79,8 @@ const defaultFormData: HiringPostFormData = {
     culture_match: 0.25,
   },
   screening_threshold: 70,
-  interview_template_id: "",
+  max_questions: 10,
+  max_duration_minutes: 45,
   publish_now: true,
   scheduled_publish_at: "",
   closes_at: "",
@@ -99,19 +101,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
   });
 
   const [skillInput, setSkillInput] = useState("");
-  const [templates, setTemplates] = useState<{ id: string; name: string; max_questions: number; max_duration_minutes: number }[]>([]);
-
-  useEffect(() => {
-    async function fetchTemplates() {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from("interview_templates")
-        .select("id, name, max_questions, max_duration_minutes")
-        .order("name");
-      if (data) setTemplates(data);
-    }
-    fetchTemplates();
-  }, []);
 
   // ---- helpers ----
 
@@ -185,6 +174,7 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
       addSkill(skillInput);
     }
   };
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -392,30 +382,38 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
             </p>
           </div>
 
-          {/* Interview Template */}
-          <div className="space-y-1.5">
-            <Label htmlFor="interview_template">Interview Template</Label>
-            <Select
-              value={form.interview_template_id || "none"}
-              onValueChange={(value) =>
-                update("interview_template_id", value === "none" || !value ? "" : value)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a template" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No template</SelectItem>
-                {templates.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name} ({t.max_questions}Q / {t.max_duration_minutes}min)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Candidates who pass screening will be auto-invited to an AI interview using this template.
-            </p>
+          {/* Interview Settings */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="max_questions">Number of Questions</Label>
+              <Input
+                id="max_questions"
+                type="number"
+                min={1}
+                max={30}
+                value={form.max_questions}
+                onChange={(e) => update("max_questions", Number(e.target.value))}
+                onBlur={(e) => update("max_questions", Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
+              />
+              <p className="text-xs text-muted-foreground">
+                How many questions the AI interviewer will ask.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="max_duration_minutes">Max Duration (minutes)</Label>
+              <Input
+                id="max_duration_minutes"
+                type="number"
+                min={5}
+                max={120}
+                value={form.max_duration_minutes}
+                onChange={(e) => update("max_duration_minutes", Number(e.target.value))}
+                onBlur={(e) => update("max_duration_minutes", Math.min(120, Math.max(5, Number(e.target.value) || 5)))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Interview ends automatically after this duration.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

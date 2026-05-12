@@ -1,17 +1,28 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import InterviewReportView from "@/components/admin/interview-report";
 import { backendFetch } from "@/lib/api/backend";
+import { createClient } from "@/lib/supabase/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,10 +48,25 @@ export default function CandidateDetailClient({
   qaItems,
   reports,
 }: CandidateDetailClientProps) {
-  const [overrideHistory, setOverrideHistory] = useState<
-    { notes: string; override_recommendation: string; at: string }[]
-  >([]);
+  const [currentOverride, setCurrentOverride] = useState<{
+    notes: string;
+    override_recommendation: string;
+  } | null>(
+    application.recruiter_override
+      ? {
+          notes: application.recruiter_notes ?? "",
+          override_recommendation: application.recruiter_override,
+        }
+      : null
+  );
   const [recruiterNotes, setRecruiterNotes] = useState("");
+
+  // Manual screening state
+  const [manualScreenOpen, setManualScreenOpen] = useState(false);
+  const [manualDecision, setManualDecision] = useState<"pass" | "reject">("pass");
+  const [manualNotes, setManualNotes] = useState("");
+  const [manualScreening, setManualScreening] = useState(false);
+  const [manualScreenDone, setManualScreenDone] = useState<"pass" | "reject" | null>(null);
 
   const latestReport = reports[0] ?? null;
   const latestSession = sessions[0] ?? null;
@@ -57,20 +83,40 @@ export default function CandidateDetailClient({
   const handleOverride = useCallback(
     async (payload: { notes: string; override_recommendation: string }) => {
       try {
-        await backendFetch(`/api/reports/${latestReport.id}/override`, {
+        await backendFetch(`/api/v1/reports/${latestReport.id}/override`, {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        setOverrideHistory((prev) => [
-          ...prev,
-          { ...payload, at: new Date().toISOString() },
-        ]);
+        setCurrentOverride(payload);
       } catch {
         // Silently handle — real implementation would show a toast
       }
     },
     [latestReport]
   );
+
+  const handleManualScreen = useCallback(async () => {
+    setManualScreening(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      await backendFetch("/api/v1/screening/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          application_id: application.id,
+          decision: manualDecision,
+          notes: manualNotes || null,
+        }),
+        token: session?.access_token,
+      });
+      setManualScreenDone(manualDecision);
+      setManualScreenOpen(false);
+    } catch {
+      // Silently handle — real implementation would show a toast
+    } finally {
+      setManualScreening(false);
+    }
+  }, [application.id, manualDecision, manualNotes]);
 
   return (
     <div className="space-y-6">
@@ -84,6 +130,105 @@ export default function CandidateDetailClient({
           <Badge variant="secondary">{application.status}</Badge>
         </p>
       </div>
+
+      {/* Manual screening banner and button */}
+      {(application.status === "applied" || application.status === "screened") && !manualScreenDone && (
+        <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+          <CardContent className="flex items-center justify-between py-4">
+            <div>
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                Manual Screening Available
+              </p>
+              <p className="text-xs text-blue-700 dark:text-blue-300">
+                Bypass automated scoring and manually pass or reject this candidate.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setManualScreenOpen(true)}
+              className="flex-shrink-0"
+            >
+              Manual Screen
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {manualScreenDone && (
+        <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
+          <CardContent className="py-4">
+            <p className="text-sm font-medium text-green-900 dark:text-green-100">
+              Manual screening complete: {manualScreenDone === "pass" ? "Passed" : "Rejected"}
+            </p>
+            <p className="text-xs text-green-700 dark:text-green-300">
+              {manualScreenDone === "pass"
+                ? "Interview invitation sent to candidate."
+                : "Rejection email sent to candidate."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manual screening dialog */}
+      <Dialog open={manualScreenOpen} onOpenChange={setManualScreenOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manual Screen Candidate</DialogTitle>
+            <DialogDescription>
+              Bypass automated scoring and manually decide whether to pass or reject this candidate.
+              This will trigger the same downstream actions (interview invite or rejection email).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Decision</label>
+              <div className="flex gap-3">
+                <Button
+                  variant={manualDecision === "pass" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setManualDecision("pass")}
+                  className="flex-1"
+                >
+                  Pass
+                </Button>
+                <Button
+                  variant={manualDecision === "reject" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setManualDecision("reject")}
+                  className="flex-1"
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Notes (optional)</label>
+              <Textarea
+                placeholder="Add any notes about this decision..."
+                value={manualNotes}
+                onChange={(e) => setManualNotes(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setManualScreenOpen(false)}
+              disabled={manualScreening}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleManualScreen}
+              disabled={manualScreening}
+            >
+              {manualScreening ? "Processing..." : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Tabs */}
       <Tabs defaultValue="profile">
@@ -207,7 +352,15 @@ export default function CandidateDetailClient({
             {application.overall_score != null && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Screening Scores</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Screening Scores</CardTitle>
+                    <Link
+                      href={`/candidates/${application.id}/score-details`}
+                      className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                    >
+                      View Score Details →
+                    </Link>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
@@ -239,10 +392,12 @@ export default function CandidateDetailClient({
 
         {/* ---- Interview Tab ---- */}
         <TabsContent value="interview">
-          {latestReport ? (
+          {latestReport || qaItems.length > 0 ? (
             <InterviewReportView
               report={latestReport}
-              qaItems={latestSessionQa}
+              reports={reports}
+              sessions={sessions}
+              qaItems={qaItems}
               audioUrl={audioUrl}
               onOverride={handleOverride}
             />
@@ -272,30 +427,22 @@ export default function CandidateDetailClient({
               </CardContent>
             </Card>
 
-            {overrideHistory.length > 0 && (
+            {currentOverride && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Override History</CardTitle>
+                  <CardTitle>Recruiter Override</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {overrideHistory.map((entry, i) => (
-                    <div
-                      key={i}
-                      className="rounded-md border p-3 text-sm"
-                    >
-                      <p className="font-medium">
-                        Override: {entry.override_recommendation}
+                <CardContent>
+                  <div className="rounded-md border p-3 text-sm">
+                    <p className="font-medium">
+                      Decision: {currentOverride.override_recommendation}
+                    </p>
+                    {currentOverride.notes && (
+                      <p className="mt-1 text-muted-foreground">
+                        {currentOverride.notes}
                       </p>
-                      {entry.notes && (
-                        <p className="mt-1 text-muted-foreground">
-                          {entry.notes}
-                        </p>
-                      )}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {new Date(entry.at).toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             )}

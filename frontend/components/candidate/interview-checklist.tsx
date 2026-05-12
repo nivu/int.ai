@@ -129,6 +129,22 @@ export function InterviewChecklist({
           and take your time with each answer.
         </div>
 
+        {/* Rules / Disclaimer */}
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-4 space-y-2">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Important rules — read before starting</p>
+          <ul className="text-sm text-amber-700 dark:text-amber-400 space-y-1 list-disc list-inside leading-relaxed">
+            <li>
+              <span className="font-medium">15-second response window:</span> You must begin speaking within 15 seconds of each question. If no response is heard, the interviewer will move on to the next question.
+            </li>
+            <li>
+              <span className="font-medium">No tab switching:</span> Do not switch to another tab or window during the interview. The session is monitored and any tab switch will immediately end your interview.
+            </li>
+            <li>
+              You may ask the interviewer to repeat a question <span className="font-medium">once per question</span>. A second repeat request will be declined.
+            </li>
+          </ul>
+        </div>
+
         {/* Checklist */}
         <div className="space-y-4">
           {/* 1. Browser */}
