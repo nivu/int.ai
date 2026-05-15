@@ -15,7 +15,7 @@ from app.services.scoring import (
     score_all_dimensions,
     score_embedding_similarity,
 )
-from app.services.supabase import get_record, get_signed_url, insert_record, supabase, update_record
+from app.services.supabase import get_record, insert_record, supabase, update_record
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -226,7 +226,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             "status": "completed",
         }
 
-    except Exception as exc:
+    except Exception:
         logger.exception("Resume screening failed for application=%s", application_id)
         try:
             update_record("applications", application_id, {"status": "applied"})

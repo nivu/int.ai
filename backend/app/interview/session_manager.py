@@ -88,7 +88,6 @@ async def start_session_from_existing(session_id: str) -> dict[str, Any]:
     dict
         ``{session_id, room_name, candidate_token, expires_at}``
     """
-    session = get_record("interview_sessions", session_id)
     room_name = f"interview-{session_id}"
 
     # Create the LiveKit room
