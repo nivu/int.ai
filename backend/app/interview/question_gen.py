@@ -29,10 +29,12 @@ class QuestionGenerator:
         self,
         resume_markdown: str,
         jd_text: str,
+        job_title: str = "",
         conversation_history: list[dict[str, str]] | None = None,
     ) -> None:
         self.resume_markdown = resume_markdown
         self.jd_text = jd_text
+        self.job_title = job_title
         self.conversation_history: list[dict[str, str]] = conversation_history or []
 
     def _llm_json(self, system_prompt: str, user_content: str, temperature: float = 0.7) -> dict:
@@ -54,13 +56,14 @@ class QuestionGenerator:
             entry.get("topic", "") for entry in self.conversation_history if entry.get("topic")
         ]
 
+        role_context = f" for a {self.job_title} role" if self.job_title else ""
         system_prompt = (
-            "You are an expert technical interviewer. "
-            "Generate the next interview question. "
+            f"You are an expert technical interviewer conducting an interview{role_context}. "
+            f"Generate the next interview question that is specifically relevant to this role. "
             "Respond with ONLY a JSON object with keys: "
             '"question_text" (the full question), '
             '"question_type" ("foundational" or "project"), '
-            '"topic" (a short label for the topic).'
+            '"topic" (a short 2-4 word label for the specific topic covered, e.g. "SQL query optimisation" or "React hooks lifecycle").'
         )
 
         user_content = self._build_generation_prompt(foundational_ratio, covered_topics)

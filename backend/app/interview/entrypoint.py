@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 
 from livekit.agents import (
@@ -76,6 +77,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     resume_markdown = ""
     jd_text = ""
+    hiring_post: dict = {}
     try:
         application = get_record("applications", application_id)
         hiring_post_id = application.get("hiring_post_id", "")
@@ -98,6 +100,8 @@ async def entrypoint(ctx: JobContext) -> None:
         template_config = {
             "max_questions": template.get("max_questions", 10),
             "max_duration_seconds": template.get("max_duration_minutes", 45) * 60,
+            "foundational_ratio": template.get("foundational_ratio", 0.6),
+            "job_title": hiring_post.get("title", "") if hiring_post else "",
         }
     except Exception:
         logger.exception("Failed to fetch template=%s session=%s", template_id, session_id)
@@ -161,6 +165,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     _agent_state: list[str] = ["initializing"]
     _user_state: list[str] = ["listening"]
+    _current_question_topic: list[str] = ["general"]
 
     # ------------------------------------------------------------------
     # Timer state
@@ -179,8 +184,8 @@ async def entrypoint(ctx: JobContext) -> None:
     # If word count < 6: resume timer (not enough to be a real answer).
     # Otherwise: wait tier-appropriate silence then advance as answered=True.
     _SILENCE_TIERS = [
-        (6,  float("inf"), None),   # 0–5 words  → resume timer
-        (16, 6,            4.0),    # 6–15 words → 4 s silence
+        (11, float("inf"), None),   # 0–10 words → resume timer
+        (16, 11,           4.0),    # 11–15 words → 4 s silence
         (31, 16,           3.0),    # 16–30 words → 3 s silence
         (float("inf"), 31, 2.0),    # 31+ words  → 2 s silence
     ]
@@ -196,11 +201,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
     def _silence_needed(word_count: int) -> float | None:
         """Seconds of silence needed to advance, or None to resume timer."""
-        if word_count < 6:
+        if word_count <= 10:
             return None
-        elif word_count < 16:
+        elif word_count <= 15:
             return 4.0
-        elif word_count < 31:
+        elif word_count <= 30:
             return 3.0
         else:
             return 2.0
@@ -226,7 +231,7 @@ async def entrypoint(ctx: JobContext) -> None:
             t.cancel()
         _grace_task[0] = None
 
-    def _arm_timer() -> None:
+    def _arm_timer(event_type: str = "timer_started") -> None:
         """Arm the no-response countdown from _timer_remaining[0].
 
         Only fires when:
@@ -234,6 +239,9 @@ async def entrypoint(ctx: JobContext) -> None:
         - Not closing
         - A question is active (_last_agent_text set)
         - No timer already running
+        
+        Args:
+            event_type: "timer_started" for new question, "timer_resumed" for resume after pause
         """
         if (
             _interview_phase[0] != "interview"
@@ -265,9 +273,9 @@ async def entrypoint(ctx: JobContext) -> None:
             await _advance_question(answered=has_words)
 
         _no_response_task[0] = asyncio.create_task(_timeout())
-        logger.info("Timer armed %.1fs session=%s", remaining, session_id)
+        logger.info("Timer armed %.1fs (event=%s) session=%s", remaining, event_type, session_id)
         asyncio.create_task(_publish_data(
-            json.dumps({"type": "timer_started", "remaining": int(remaining)}).encode()
+            json.dumps({"type": event_type, "remaining": math.ceil(remaining)}).encode()
         ))
 
     # ------------------------------------------------------------------
@@ -323,13 +331,13 @@ async def entrypoint(ctx: JobContext) -> None:
                 controller.question_gen.conversation_history.append({
                     "question": question_text,
                     "answer": answer_text,
-                    "topic": "interview",
+                    "topic": _current_question_topic[0],
                 })
             else:
                 controller.question_gen.conversation_history.append({
                     "question": question_text,
                     "answer": "[no answer — candidate did not respond]",
-                    "topic": "skipped",
+                    "topic": _current_question_topic[0],
                 })
 
         # Last question → close
@@ -354,9 +362,12 @@ async def entrypoint(ctx: JobContext) -> None:
             try:
                 q_data = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    controller.question_gen.generate_next_question,
+                    lambda: controller.question_gen.generate_next_question(
+                        controller.foundational_ratio
+                    ),
                 )
                 next_q_text = q_data.get("question_text", "").strip()
+                _current_question_topic[0] = q_data.get("topic", "general")
             except Exception:
                 logger.exception("Failed to generate Q#%d session=%s", next_q, session_id)
                 next_q_text = ""
@@ -373,21 +384,44 @@ async def entrypoint(ctx: JobContext) -> None:
             return
 
         # ----------------------------------------------------------------
-        # Candidate answered — use LLM to acknowledge + ask next question.
+        # Candidate answered — pre-generate next question so the topic is
+        # tracked and the LLM delivers a role-specific question.
         # ----------------------------------------------------------------
+        next_q_text = ""
+        next_q_topic = "general"
+        try:
+            q_data = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: controller.question_gen.generate_next_question(
+                    controller.foundational_ratio
+                ),
+            )
+            next_q_text = q_data.get("question_text", "").strip()
+            next_q_topic = q_data.get("topic", "general")
+        except Exception:
+            logger.exception("Failed to pre-generate Q#%d session=%s", next_q, session_id)
+
+        _current_question_topic[0] = next_q_topic
+
         try:
             controller.explicit_generate_count += 1
+            instructions = (
+                f"Question {current_q} of {controller.max_questions} is complete. "
+                f"Briefly acknowledge the candidate's answer (1 sentence max), "
+                f"then ask this exact question naturally: {next_q_text}"
+                if next_q_text else
+                f"Question {current_q} of {controller.max_questions} is complete. "
+                f"Briefly acknowledge the candidate's answer (1 sentence max), "
+                f"then ask a new question on a completely different topic relevant to the role."
+            )
             session.generate_reply(
-                instructions=(
-                    f"Question {current_q} of {controller.max_questions} is complete. "
-                    f"Briefly acknowledge the candidate's answer (1 sentence max), "
-                    f"then ask question {next_q}. "
-                    "It must be a completely new question on a different topic. "
-                    "Do NOT repeat, rephrase, or follow up on the previous question."
-                ),
+                instructions=instructions,
                 allow_interruptions=False,
             )
-            logger.info("generate_reply scheduled for Q#%d session=%s", next_q, session_id)
+            logger.info(
+                "generate_reply scheduled Q#%d topic=%r session=%s",
+                next_q, next_q_topic, session_id,
+            )
         except Exception:
             logger.exception("Failed to schedule generate_reply session=%s", session_id)
 
@@ -478,7 +512,10 @@ async def entrypoint(ctx: JobContext) -> None:
                 logger.debug("Timer paused at %.1fs session=%s", _timer_remaining[0], session_id)
             _cancel_no_response_task("user_speaking")
             asyncio.create_task(_publish_data(
-                json.dumps({"type": "user_speaking"}).encode()
+                json.dumps({
+                    "type": "user_speaking",
+                    "remaining": math.ceil(_timer_remaining[0])
+                }).encode()
             ))
 
         elif old_state == "speaking" and event.new_state != "speaking":
@@ -495,7 +532,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 json.dumps({
                     "type": "grace_period_started",
                     "duration": _SPEAK_GRACE_SECONDS,
-                    "remaining": int(_timer_remaining[0]),
+                    "remaining": math.ceil(_timer_remaining[0]),
                 }).encode()
             ))
 
@@ -525,13 +562,10 @@ async def entrypoint(ctx: JobContext) -> None:
                     # Too few words — candidate hasn't really answered.
                     # Resume the no-response countdown from remaining time.
                     logger.debug(
-                        "Grace done, %d words < 6 — resuming timer at %.1fs session=%s",
+                        "Grace done, %d words ≤ 10 — resuming timer at %.1fs session=%s",
                         word_count, _timer_remaining[0], session_id,
                     )
-                    _arm_timer()
-                    asyncio.create_task(_publish_data(
-                        json.dumps({"type": "timer_resumed", "remaining": int(_timer_remaining[0])}).encode()
-                    ))
+                    _arm_timer("timer_resumed")
                     return
 
                 # Phase 2: tier-appropriate confirmation silence.
@@ -544,7 +578,7 @@ async def entrypoint(ctx: JobContext) -> None:
                     json.dumps({
                         "type": "grace_period_started",
                         "duration": extra_silence,
-                        "remaining": int(_timer_remaining[0]),
+                        "remaining": math.ceil(_timer_remaining[0]),
                     }).encode()
                 ))
 
@@ -674,14 +708,24 @@ async def entrypoint(ctx: JobContext) -> None:
     # Data channel: tab-switch
     # ------------------------------------------------------------------
     @ctx.room.on("data_received")
-    def _on_data_received(data: bytes, *args, **kwargs) -> None:
+    def _on_data_received(packet, *args, **kwargs) -> None:
+        # Newer livekit-rtc fires with a DataPacket object; older versions pass
+        # raw bytes directly.  Handle both so tab_switch is never silently lost.
         try:
-            msg = json.loads(data.decode())
-        except Exception:
+            raw: bytes = packet.data if hasattr(packet, "data") else bytes(packet)
+        except Exception as e:
+            logger.warning("data_received: cannot extract bytes session=%s error=%s", session_id, e)
+            return
+        logger.debug("Data received in room session=%s data=%s", session_id, raw[:100])
+        try:
+            msg = json.loads(raw.decode())
+            logger.info("Parsed data message session=%s type=%s", session_id, msg.get("type"))
+        except Exception as e:
+            logger.warning("Failed to parse data message session=%s error=%s", session_id, e)
             return
 
         if msg.get("type") == "tab_switch" and not controller.ended:
-            logger.warning("Tab switch detected session=%s", session_id)
+            logger.warning("Tab switch detected - initiating termination session=%s", session_id)
 
             async def _terminate_tab_switch() -> None:
                 _cancel_no_response_task()
@@ -700,6 +744,7 @@ async def entrypoint(ctx: JobContext) -> None:
                         "terminated_at_question": _qa_number[0] + 1,
                         "timer_remaining_at_termination": timer_snap,
                     })
+                    logger.info("Updated session status to terminated_tab_switch session=%s", session_id)
                 except Exception:
                     logger.exception("Failed to persist termination metadata session=%s", session_id)
 
@@ -707,6 +752,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 controller.finish()
                 await _send_termination_email("tab_switch")
                 shutdown_event.set()
+                logger.info("Tab switch termination complete session=%s", session_id)
 
             asyncio.create_task(_terminate_tab_switch())
 

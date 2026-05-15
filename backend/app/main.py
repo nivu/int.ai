@@ -28,6 +28,20 @@ _celery_proc: subprocess.Popen | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _celery_proc
+    
+    # Run timer logic validation tests on startup
+    logger.info("Running timer logic validation tests...")
+    try:
+        from app.interview.test_timer_logic import run_all_timer_tests
+        test_passed = await run_all_timer_tests()
+        if not test_passed:
+            logger.error("⚠️  Timer logic validation FAILED - server starting anyway but review errors above")
+        else:
+            logger.info("✅ Timer logic validation PASSED")
+    except Exception as e:
+        logger.error(f"⚠️  Timer logic validation encountered error: {e}")
+        logger.error("Server starting anyway but timer logic may have issues")
+    
     _celery_proc = subprocess.Popen(
         [sys.executable, "-m", "celery", "-A", "app.worker", "worker", "--loglevel=info"],
         stdout=None,  # inherit so logs appear in the same terminal
