@@ -16,7 +16,7 @@ from app.models.interview import (
     ReconnectResponse,
 )
 from app.config import settings
-from app.interview.session_manager import end_session, reconnect_session, start_session_from_existing
+from app.interview.session_manager import reconnect_session, start_session_from_existing
 from app.worker import celery_app
 
 _TERMINATED_STATUSES = frozenset({"terminated_tab_switch", "terminated_abandoned"})

@@ -10,13 +10,13 @@ import logging
 import time
 from typing import Any
 
-from livekit.agents import Agent, AgentSession, ChatContext
+from livekit.agents import Agent, AgentSession
 from livekit.plugins import deepgram, openai, silero
 
 
 from app.config import settings
 from app.interview.question_gen import QuestionGenerator
-from app.services.supabase import insert_record, update_record
+from app.services.supabase import update_record
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")

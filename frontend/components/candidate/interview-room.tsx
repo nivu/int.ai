@@ -139,6 +139,7 @@ function InterviewRoomInner({
       !awaitingAgentSpeechRef.current
     ) {
       console.log("[interview] Fallback: starting countdown on agent listening state");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       startCountdown(NO_RESPONSE_TIMEOUT);
     }
   }, [state, interviewActive, sessionEnded, graceActive, userSpeaking, startCountdown]);

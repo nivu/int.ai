@@ -76,6 +76,7 @@ export function InterviewChecklist({
 
   // Browser compatibility check
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBrowserCheck("checking");
     const isModern =
       typeof window !== "undefined" &&
@@ -106,6 +107,7 @@ export function InterviewChecklist({
 
   useEffect(() => {
     if (browserCheck === "passed") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       requestMicrophone();
     }
   }, [browserCheck, requestMicrophone]);
