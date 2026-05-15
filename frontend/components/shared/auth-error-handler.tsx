@@ -14,9 +14,12 @@ export function AuthErrorHandler() {
 
   useEffect(() => {
     const supabase = createClient();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {
       if (event === "SIGNED_OUT") {
-        router.push("/auth/login");
+        const isCandidate =
+          window.location.pathname.startsWith("/portal") ||
+          window.location.pathname.startsWith("/interview");
+        router.replace(isCandidate ? "/auth/login?type=candidate" : "/auth/login");
       }
     });
     return () => subscription.unsubscribe();

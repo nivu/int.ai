@@ -273,6 +273,145 @@ async def terminate_abandoned(session_id: str = Body(..., embed=True)) -> dict:
     return {"status": "ok"}
 
 
+@router.get("/{session_id}/summary")
+async def get_interview_summary(session_id: str) -> dict:
+    """Generate an on-demand AI summary of a completed interview session.
+
+    Spec: GET /api/v1/interview/{session_id}/summary
+    Returns 404 if session not found, 400 if transcript unavailable, 500 if LLM fails.
+    """
+    from datetime import datetime, timezone
+    from openai import OpenAI
+    from app.services.supabase import supabase as sb
+
+    # Fetch session
+    session_resp = (
+        sb.table("interview_sessions")
+        .select("id, status, application_id")
+        .eq("id", session_id)
+        .maybe_single()
+        .execute()
+    )
+    if not session_resp.data:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+    session = session_resp.data
+
+    completed_statuses = {"completed", "terminated_tab_switch", "terminated_abandoned"}
+    if session["status"] not in completed_statuses:
+        raise HTTPException(status_code=400, detail="Interview not completed - transcript not available")
+
+    # Fetch Q&A items
+    qa_resp = (
+        sb.table("interview_qa")
+        .select("question_number, question_text, answer_text")
+        .eq("session_id", session_id)
+        .order("question_number")
+        .execute()
+    )
+    qa_items = qa_resp.data or []
+    if not qa_items:
+        raise HTTPException(status_code=400, detail="Interview not completed - transcript not available")
+
+    # Fetch job title and candidate name for richer prompt context
+    job_title = "the role"
+    candidate_name = "the candidate"
+    app_resp = (
+        sb.table("applications")
+        .select("hiring_post_id, candidate_id")
+        .eq("id", session["application_id"])
+        .maybe_single()
+        .execute()
+    )
+    if app_resp.data:
+        post_resp = (
+            sb.table("hiring_posts")
+            .select("title")
+            .eq("id", app_resp.data["hiring_post_id"])
+            .maybe_single()
+            .execute()
+        )
+        if post_resp.data:
+            job_title = post_resp.data["title"]
+
+        cand_resp = (
+            sb.table("candidates")
+            .select("full_name")
+            .eq("id", app_resp.data["candidate_id"])
+            .maybe_single()
+            .execute()
+        )
+        if cand_resp.data and cand_resp.data.get("full_name"):
+            candidate_name = cand_resp.data["full_name"]
+
+    # Build transcript text
+    transcript_lines: list[str] = []
+    for qa in qa_items:
+        q_num = qa.get("question_number", "?")
+        q_text = (qa.get("question_text") or "").strip()
+        a_text = (qa.get("answer_text") or "").strip() or "(No response)"
+        transcript_lines.append(f"Q{q_num}: {q_text}\nCandidate: {a_text}")
+    full_transcript = "\n\n".join(transcript_lines)
+
+    # Truncate if very long — keep full Q&A pairs up to ~8000 chars
+    if len(full_transcript) > 8000:
+        truncated_lines: list[str] = []
+        total = 0
+        for line in transcript_lines:
+            if total + len(line) > 8000:
+                break
+            truncated_lines.append(line)
+            total += len(line)
+        full_transcript = "\n\n".join(truncated_lines)
+        full_transcript += f"\n\n(Summary based on first {len(truncated_lines)} questions due to length)"
+
+    # Spec-defined prompts (verbatim from spec)
+    system_prompt = (
+        "You are an expert technical recruiter analyzing interview transcripts. "
+        "Your task is to provide a comprehensive, objective summary of the candidate's interview performance. "
+        "Focus on technical accuracy, communication clarity, problem-solving ability, and cultural fit indicators.\n\n"
+        "Be honest and balanced in your assessment. Highlight both strengths and weaknesses. "
+        "Your summary will help recruiters make informed decisions about advancing candidates."
+    )
+    user_prompt = (
+        f"Analyze the following interview transcript and provide a comprehensive summary.\n\n"
+        f"Job Title: {job_title}\n"
+        f"Candidate Name: {candidate_name}\n\n"
+        f"Interview Transcript:\n{full_transcript}\n\n"
+        "Provide a structured summary with the following sections:\n\n"
+        "1. Overall Performance: A 2-3 sentence high-level assessment\n"
+        "2. Key Strengths: 3-5 bullet points of demonstrated strengths\n"
+        "3. Areas of Concern: 2-4 bullet points of weaknesses or gaps\n"
+        "4. Notable Responses: 2-3 bullet points of standout moments\n"
+        "5. Overall Recommendation: Clear sentiment "
+        "(Strong Recommend / Recommend with Reservations / Do Not Recommend) with brief justification\n\n"
+        "Format your response in markdown with clear section headers."
+    )
+
+    try:
+        client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=1000,
+            timeout=30.0,
+        )
+        summary_text = (response.choices[0].message.content or "").strip()
+    except Exception:
+        logger.exception("Failed to generate interview summary for session %s", session_id)
+        raise HTTPException(status_code=500, detail="Failed to generate summary")
+
+    return {
+        "session_id": session_id,
+        "summary": summary_text,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model_used": "gpt-4o-mini",
+    }
+
+
 @router.post("/evaluate", response_model=EvaluateResponse, status_code=202)
 async def evaluate(body: EvaluateRequest) -> EvaluateResponse:
     """Enqueue an evaluation task for a completed interview session."""
