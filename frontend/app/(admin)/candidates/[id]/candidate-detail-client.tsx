@@ -123,7 +123,7 @@ export default function CandidateDetailClient({
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold">
-          {resumeData?.parsed_name || application.candidate?.full_name || "Candidate"}
+          {application.candidate?.full_name || resumeData?.parsed_name || "Candidate"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {hiringPost?.title ?? "Unknown position"} &mdash;{" "}
@@ -248,8 +248,19 @@ export default function CandidateDetailClient({
                     <CardTitle>Contact</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-1 text-sm">
-                    {(resumeData.parsed_email || resumeData.email) && <p>Email: {resumeData.parsed_email || resumeData.email}</p>}
-                    {(resumeData.parsed_name || resumeData.name) && <p>Name: {resumeData.parsed_name || resumeData.name}</p>}
+                    {(application.candidate?.full_name || resumeData.parsed_name) && (
+                      <p>Name: {application.candidate?.full_name || resumeData.parsed_name}</p>
+                    )}
+                    {(resumeData.parsed_email || resumeData.email || application.candidate?.email) && (
+                      <p>Email: {resumeData.parsed_email || resumeData.email || application.candidate?.email}</p>
+                    )}
+                    {resumeData.parsed_name && 
+                     application.candidate?.full_name && 
+                     resumeData.parsed_name !== application.candidate.full_name && (
+                      <p className="text-xs text-muted-foreground">
+                        Name on resume: {resumeData.parsed_name}
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
 

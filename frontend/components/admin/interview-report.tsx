@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import AudioPlayer from "@/components/shared/audio-player";
 import ScoreRadar from "@/components/shared/score-radar";
 import { Clock, MessageSquare, Calendar, AlertTriangle } from "lucide-react";
+import { backendFetch } from "@/lib/api/backend";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +27,8 @@ interface InterviewReport {
   summary: string;
   strengths: string[];
   concerns: string[];
+  notable_responses?: Array<{ question_number: number; note: string }>;
+  recommendation_detail?: string;
   dimension_averages?: {
     technical_accuracy: number;
     depth_of_understanding: number;
@@ -331,6 +334,68 @@ function SessionBlock({
 }
 
 // ---------------------------------------------------------------------------
+// Inline markdown renderer — handles the LLM summary format without a library
+// ---------------------------------------------------------------------------
+
+function MarkdownSummary({ content }: { content: string }) {
+  const sections = content.split(/\n(?=##\s)/);
+
+  const sectionColors: Record<number, { bg: string; title: string; bullet: string }> = {
+    0: { bg: "bg-blue-50 dark:bg-blue-950/20", title: "text-blue-700 dark:text-blue-400", bullet: "text-blue-500" },
+    1: { bg: "bg-emerald-50 dark:bg-emerald-950/20", title: "text-emerald-700 dark:text-emerald-400", bullet: "text-emerald-500" },
+    2: { bg: "bg-amber-50 dark:bg-amber-950/20", title: "text-amber-700 dark:text-amber-400", bullet: "text-amber-500" },
+    3: { bg: "bg-purple-50 dark:bg-purple-950/20", title: "text-purple-700 dark:text-purple-400", bullet: "text-purple-500" },
+    4: { bg: "bg-slate-50 dark:bg-slate-900/40", title: "text-slate-700 dark:text-slate-300", bullet: "text-slate-500" },
+  };
+
+  return (
+    <div className="space-y-4">
+      {sections.map((section, idx) => {
+        const lines = section.replace(/^##\s+/, "").split("\n");
+        const heading = lines[0].trim().replace(/^\d+\.\s*/, "");
+        const bodyLines = lines.slice(1).filter(l => l.trim());
+        const colors = sectionColors[idx % 5];
+
+        const isBulletSection = bodyLines.some(l => l.trim().startsWith("-") || l.trim().startsWith("*"));
+
+        const renderLine = (text: string) =>
+          text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+        return (
+          <div key={idx} className={`rounded-lg p-4 ${colors.bg}`}>
+            <p className={`mb-2 text-sm font-semibold ${colors.title}`}>{heading}</p>
+            {isBulletSection ? (
+              <ul className="space-y-1.5">
+                {bodyLines.map((line, li) => {
+                  const text = line.replace(/^[-*]\s*/, "").trim();
+                  if (!text) return null;
+                  return (
+                    <li key={li} className="flex items-start gap-2 text-sm text-foreground/80">
+                      <span className={`mt-0.5 font-bold ${colors.bullet}`}>•</span>
+                      <span dangerouslySetInnerHTML={{ __html: renderLine(text) }} />
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="space-y-1">
+                {bodyLines.map((line, li) => (
+                  <p
+                    key={li}
+                    className="text-sm leading-relaxed text-foreground/80"
+                    dangerouslySetInnerHTML={{ __html: renderLine(line.trim()) }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -344,6 +409,33 @@ export default function InterviewReportView({
 }: InterviewReportProps) {
   const [notes, setNotes] = useState("");
   const [overrideRec, setOverrideRec] = useState("no_override");
+
+  // On-demand AI summary state (spec: GET /api/v1/interview/{session_id}/summary)
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  const completedStatuses = new Set(["completed", "terminated_tab_switch", "terminated_abandoned"]);
+  const completedSession = sessions.find(s => completedStatuses.has(s.status ?? "")) ?? null;
+
+  const fetchSummary = useCallback(async (sessionId: string) => {
+    setIsSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      const data = await backendFetch<{ summary: string }>(`/api/v1/interview/${sessionId}/summary`);
+      setSummary(data.summary);
+    } catch {
+      setSummaryError("Unable to generate summary. Please try again later.");
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (completedSession?.id) {
+      fetchSummary(completedSession.id);
+    }
+  }, [completedSession?.id, fetchSummary]);
 
   const latestSession = sessions[0] ?? null;
 
@@ -392,6 +484,43 @@ export default function InterviewReportView({
   return (
     <div className="space-y-6">
 
+      {/* ── AI Interview Summary (on-demand, above everything) ──────── */}
+      <Card className="border-blue-200 bg-blue-50/30 dark:border-blue-800 dark:bg-blue-950/20">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <span className="text-blue-600 dark:text-blue-400">✨</span>
+            AI Interview Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!completedSession ? (
+            <p className="text-sm text-muted-foreground">
+              Interview summary will be available after the interview is completed.
+            </p>
+          ) : isSummaryLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <p className="text-sm text-muted-foreground">Generating AI summary...</p>
+              <div className="h-4 bg-muted rounded w-3/4" />
+              <div className="h-4 bg-muted rounded w-1/2" />
+              <div className="h-4 bg-muted rounded w-2/3" />
+            </div>
+          ) : summaryError ? (
+            <div className="space-y-3">
+              <p className="text-sm text-red-600 dark:text-red-400">{summaryError}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => completedSession && fetchSummary(completedSession.id)}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : summary ? (
+            <MarkdownSummary content={summary} />
+          ) : null}
+        </CardContent>
+      </Card>
+
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start gap-4">
         {report && (
@@ -424,50 +553,6 @@ export default function InterviewReportView({
           </div>
         </div>
       </div>
-
-      {/* ── AI Summary ─────────────────────────────────────────────── */}
-      {report && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">AI Summary</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm leading-relaxed text-muted-foreground">{report.summary}</p>
-            {(report.strengths.length > 0 || report.concerns.length > 0) && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {report.strengths.length > 0 && (
-                  <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-3">
-                    <p className="mb-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
-                      Strengths
-                    </p>
-                    <ul className="space-y-1">
-                      {report.strengths.map((s, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-sm text-emerald-900 dark:text-emerald-200">
-                          <span className="mt-0.5 text-emerald-500">✓</span>{s}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {report.concerns.length > 0 && (
-                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 p-3">
-                    <p className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                      Concerns
-                    </p>
-                    <ul className="space-y-1">
-                      {report.concerns.map((c, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-sm text-amber-900 dark:text-amber-200">
-                          <span className="mt-0.5 text-amber-500">⚠</span>{c}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* ── Interview Attempts ─────────────────────────────────────── */}
       {populatedSessions.length > 0 && (

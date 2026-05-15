@@ -62,6 +62,7 @@ export default function TemplatesClient({
   );
   const [deleteTemplate, setDeleteTemplate] =
     useState<InterviewTemplate | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // ---- Create ----
 
@@ -192,6 +193,7 @@ export default function TemplatesClient({
   const handleDelete = useCallback(async () => {
     if (!deleteTemplate) return;
     setLoading(true);
+    setDeleteError(null);
     try {
       const { error } = await supabase
         .from("interview_templates")
@@ -202,8 +204,17 @@ export default function TemplatesClient({
 
       setTemplates((prev) => prev.filter((t) => t.id !== deleteTemplate.id));
       setDeleteTemplate(null);
-    } catch (err) {
-      console.error("Failed to delete template:", err);
+    } catch (err: unknown) {
+      const msg =
+        (err as { message?: string })?.message ||
+        (typeof err === "string" ? err : "Delete failed — please try again.");
+      const isFK = msg.includes("foreign key") || msg.includes("violates");
+      console.error("Failed to delete template:", msg);
+      setDeleteError(
+        isFK
+          ? "This template is assigned to one or more job posts. Remove it from those posts before deleting."
+          : msg,
+      );
     } finally {
       setLoading(false);
     }
@@ -371,7 +382,7 @@ export default function TemplatesClient({
       <Dialog
         open={deleteTemplate !== null}
         onOpenChange={(open) => {
-          if (!open) setDeleteTemplate(null);
+          if (!open) { setDeleteTemplate(null); setDeleteError(null); }
         }}
       >
         <DialogContent className="sm:max-w-sm">
@@ -382,6 +393,9 @@ export default function TemplatesClient({
               &quot;? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
           <DialogFooter>
             <Button
               variant="outline"

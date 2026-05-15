@@ -10,13 +10,13 @@ import logging
 import time
 from typing import Any
 
-from livekit.agents import Agent, AgentSession, ChatContext
+from livekit.agents import Agent, AgentSession
 from livekit.plugins import deepgram, openai, silero
 
 
 from app.config import settings
 from app.interview.question_gen import QuestionGenerator
-from app.services.supabase import insert_record, update_record
+from app.services.supabase import update_record
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -29,9 +29,10 @@ _vad = silero.VAD.load()
 # ---------------------------------------------------------------------------
 # System prompt for the AI interviewer persona
 # ---------------------------------------------------------------------------
-def _build_system_prompt(max_questions: int) -> str:
+def _build_system_prompt(max_questions: int, job_title: str = "") -> str:
+    role_line = f" for a {job_title} position" if job_title else ""
     return f"""\
-You are a professional yet warm AI technical interviewer for int.ai.
+You are a professional yet warm AI technical interviewer for int.ai, conducting an interview{role_line}.
 
 This interview has exactly {max_questions} question(s). You must ask no more \
 and no fewer than {max_questions} question(s) in total.
@@ -65,11 +66,14 @@ class _SessionController:
         jd_text: str,
         max_questions: int,
         max_duration_seconds: int,
+        job_title: str = "",
+        foundational_ratio: float = 0.6,
     ) -> None:
         self.session_id = session_id
         self.question_count = 0
         self.max_questions = max_questions
         self.max_duration_seconds = max_duration_seconds
+        self.foundational_ratio = foundational_ratio
         self.start_time = time.time()
         self.ended = False
         self.terminated = False  # set True for tab-switch/timeout so no reset-to-pending occurs
@@ -79,6 +83,7 @@ class _SessionController:
         self.question_gen = QuestionGenerator(
             resume_markdown=resume_markdown,
             jd_text=jd_text,
+            job_title=job_title,
         )
 
     @property
@@ -226,6 +231,8 @@ def create_interview_agent(
 ) -> tuple[Agent, AgentSession, _SessionController]:
     max_questions: int = template_config.get("max_questions", 10)
     max_duration: int = template_config.get("max_duration_seconds", 1800)
+    foundational_ratio: float = template_config.get("foundational_ratio", 0.6)
+    job_title: str = template_config.get("job_title", "")
 
     controller = _SessionController(
         session_id=session_id,
@@ -233,6 +240,8 @@ def create_interview_agent(
         jd_text=jd_text,
         max_questions=max_questions,
         max_duration_seconds=max_duration,
+        job_title=job_title,
+        foundational_ratio=foundational_ratio,
     )
 
     # -- STT: Deepgram Nova-2, Indian English, streaming ---------------
@@ -248,8 +257,13 @@ def create_interview_agent(
         endpointing_ms=3500,
     )
 
-    # -- TTS: Deepgram, streaming --------------------------------------
+    # -- TTS: Deepgram Aura, streaming ---------------------------------
+    # aura-asteria-en is Deepgram's primary production English voice.
+    # No encoding/sample_rate override — the LiveKit Deepgram plugin
+    # handles format negotiation internally. Forcing opus caused broken
+    # audio chunks because Deepgram TTS streams PCM, not Opus.
     tts_plugin = deepgram.TTS(
+        model="aura-luna-en",
         api_key=settings.DEEPGRAM_API_KEY.get_secret_value(),
     )
 
@@ -262,7 +276,7 @@ def create_interview_agent(
     # -- Build the Agent (defines persona and instructions) ------------
     agent = InterviewAgent(
         controller=controller,
-        instructions=_build_system_prompt(max_questions),
+        instructions=_build_system_prompt(max_questions, job_title),
         stt=stt_plugin,
         llm=llm_plugin,
         tts=tts_plugin,

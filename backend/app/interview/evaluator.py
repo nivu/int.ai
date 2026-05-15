@@ -260,6 +260,8 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
         "summary": summary_data.get("summary", ""),
         "strengths": summary_data.get("strengths", []),
         "concerns": summary_data.get("concerns", []),
+        "notable_responses": summary_data.get("notable_responses", []),
+        "recommendation_detail": summary_data.get("recommendation_detail", ""),
         "dimension_averages": dimension_averages,
         "candidate_email_body": candidate_email_body,
         "share_token": share_token,
@@ -389,7 +391,7 @@ def _generate_synthesis(
     )
 
     prompt = f"""\
-You are an expert technical interview evaluator writing a hiring report for a recruiter.
+You are an expert technical interview evaluator writing a comprehensive hiring report for a recruiter.
 
 ## Job Description
 {jd_text}
@@ -401,19 +403,28 @@ You are an expert technical interview evaluator writing a hiring report for a re
 {overall_grade:.1f} / 100 — Band: {band}
 
 ## Instructions
-Write a concise but informative report. Follow these rules exactly:
-- The summary must be 2–3 sentences of narrative. Do NOT repeat numeric scores.
-- Strengths must reference what the candidate actually said, not generic praise.
-- Concerns must reference what the candidate actually said, not generic criticism.
-- Provide 2–4 specific strengths grounded in actual answers.
-- Provide 2–4 specific concerns grounded in actual answers.
-- If a question was skipped (no response), note that as a concern if relevant.
+Write a comprehensive but concise report for recruiters. Follow these rules exactly:
+
+1. **Summary** (2-3 sentences): Provide a narrative overview of the candidate's overall performance. Do NOT repeat numeric scores.
+
+2. **Strengths** (3-5 points): List specific strengths grounded in what the candidate actually said. Reference actual answers, not generic praise.
+
+3. **Concerns** (3-5 points): List specific concerns grounded in what the candidate actually said. Reference actual answers, not generic criticism. If questions were skipped (no response), note that as a concern.
+
+4. **Notable Responses** (2-3 examples): Highlight 2-3 specific questions and answers that were particularly strong OR particularly weak. Include the question number and a brief explanation of why it was notable.
+
+5. **Recommendation** (1-2 sentences): Provide a clear, actionable recommendation with sentiment (positive/neutral/negative).
 
 ## Required JSON Shape
 {{
   "summary": "<2-3 sentence narrative>",
   "strengths": ["<specific strength 1>", "<specific strength 2>", ...],
-  "concerns": ["<specific concern 1>", "<specific concern 2>", ...]
+  "concerns": ["<specific concern 1>", "<specific concern 2>", ...],
+  "notable_responses": [
+    {{"question_number": 1, "note": "<why this response was notable>"}},
+    {{"question_number": 2, "note": "<why this response was notable>"}}
+  ],
+  "recommendation_detail": "<1-2 sentence actionable recommendation>"
 }}
 
 {_JSON_ONLY_INSTRUCTION}"""
@@ -421,12 +432,20 @@ Write a concise but informative report. Follow these rules exactly:
     result = _call_o1(prompt, context="synthesis")
     if result is None:
         logger.error("Synthesis call failed — using empty fallback")
-        return {"summary": "", "strengths": [], "concerns": []}
+        return {
+            "summary": "",
+            "strengths": [],
+            "concerns": [],
+            "notable_responses": [],
+            "recommendation_detail": "",
+        }
 
     return {
         "summary": result.get("summary", ""),
         "strengths": result.get("strengths", []) if isinstance(result.get("strengths"), list) else [],
         "concerns": result.get("concerns", []) if isinstance(result.get("concerns"), list) else [],
+        "notable_responses": result.get("notable_responses", []) if isinstance(result.get("notable_responses"), list) else [],
+        "recommendation_detail": result.get("recommendation_detail", ""),
     }
 
 

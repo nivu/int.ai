@@ -25,7 +25,7 @@ export default function InterviewSessionPage() {
   const sessionActiveRef = useRef(false);
 
   useEffect(() => {
-    let cleanupFns: Array<() => void> = [];
+    const cleanupFns: Array<() => void> = [];
 
     async function validateAndInit() {
       const raw = sessionStorage.getItem("interview_room");

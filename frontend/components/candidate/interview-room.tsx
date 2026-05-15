@@ -61,6 +61,9 @@ function InterviewRoomInner({
   const interviewActiveRef = useRef(false);
   const userSpeakingRef = useRef(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // True from question_progress until agent_speaking/timer_started — suppresses
+  // the fallback timer so it never starts while the agent is about to speak.
+  const awaitingAgentSpeechRef = useRef(false);
   const NO_RESPONSE_TIMEOUT = 15;
 
   useEffect(() => { sessionEndedRef.current = sessionEnded; }, [sessionEnded]);
@@ -72,6 +75,15 @@ function InterviewRoomInner({
   // ------------------------------------------------------------------
   // Countdown helpers
   // ------------------------------------------------------------------
+  const freezeCountdown = useCallback(() => {
+    // Stop the countdown interval but preserve the current value (frozen state)
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    // Do NOT set noResponseSecondsLeft to null — keep the frozen value visible
+  }, []);
+
   const clearCountdown = useCallback(() => {
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
@@ -110,13 +122,12 @@ function InterviewRoomInner({
 
   useEffect(() => () => clearCountdown(), [clearCountdown]);
 
-  // Timer control — driven entirely by backend data channel events.
-  // Fallback: if backend timer_started is delayed, start on agent "listening"
-  // state. Blocked when:
-  //   - countdown already running
-  //   - grace period active (user just stopped speaking)
-  //   - user is currently speaking (userSpeaking)
-  //   - interview hasn't started yet
+  // Timer control — driven by backend data channel events (timer_started /
+  // timer_resumed).  This fallback only fires when the backend event is
+  // delayed; the awaitingAgentSpeechRef guard prevents it from firing during
+  // the window between question_progress (agent still "listening") and the
+  // agent actually starting to speak — which was the cause of the premature
+  // 15-second countdown that ran while the AI was still generating its reply.
   useEffect(() => {
     if (
       state === "listening" &&
@@ -124,9 +135,11 @@ function InterviewRoomInner({
       !sessionEnded &&
       !countdownRef.current &&
       !graceActive &&
-      !userSpeaking
+      !userSpeaking &&
+      !awaitingAgentSpeechRef.current
     ) {
       console.log("[interview] Fallback: starting countdown on agent listening state");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       startCountdown(NO_RESPONSE_TIMEOUT);
     }
   }, [state, interviewActive, sessionEnded, graceActive, userSpeaking, startCountdown]);
@@ -166,6 +179,8 @@ function InterviewRoomInner({
       // Only enforce tab-switch after the interview has actually started (first
       // question begun).  During the greeting / rules phase interviewActive is
       // still false, so switching away there does not terminate the session.
+      console.log("[interview] Visibility changed - hidden:", document.hidden, "connected:", connected, "interviewActive:", interviewActiveRef.current, "sessionEnded:", sessionEndedRef.current, "tabViolation:", tabViolation);
+      
       if (
         document.hidden &&
         connected &&
@@ -173,21 +188,34 @@ function InterviewRoomInner({
         !sessionEndedRef.current &&
         !tabViolation
       ) {
+        console.log("[interview] Tab switch detected - terminating session");
         setTabViolation(true);
         // Clear sessionStorage immediately so any refresh from the violation
         // screen cannot re-enter the interview room.
         sessionStorage.removeItem("interview_room");
+        
+        const message = JSON.stringify({ type: "tab_switch" });
+        console.log("[interview] Sending tab_switch message:", message);
+        
         localParticipant?.publishData(
-          new TextEncoder().encode(JSON.stringify({ type: "tab_switch" })),
+          new TextEncoder().encode(message),
           { reliable: true }
-        ).finally(() => {
+        ).then(() => {
+          console.log("[interview] Tab switch message sent successfully");
+          setTimeout(() => {
+            console.log("[interview] Disconnecting room after tab switch");
+            room.disconnect();
+          }, 1500);
+        }).catch((error) => {
+          console.error("[interview] Failed to send tab switch message:", error);
+          // Still disconnect even if message fails
           setTimeout(() => room.disconnect(), 1500);
         });
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [connected, tabViolation, localParticipant, room]);
+  }, [connected, tabViolation, localParticipant, room, interviewActive]);
 
   // ------------------------------------------------------------------
   // Data messages from the agent
@@ -195,9 +223,11 @@ function InterviewRoomInner({
   // Keep a ref so the room event handler always calls the latest version of
   // each function without needing to re-subscribe when deps change.
   const clearCountdownRef = useRef(clearCountdown);
+  const freezeCountdownRef = useRef(freezeCountdown);
   const startCountdownRef = useRef(startCountdown);
   const endSessionRef = useRef(endSession);
   useEffect(() => { clearCountdownRef.current = clearCountdown; }, [clearCountdown]);
+  useEffect(() => { freezeCountdownRef.current = freezeCountdown; }, [freezeCountdown]);
   useEffect(() => { startCountdownRef.current = startCountdown; }, [startCountdown]);
   useEffect(() => { endSessionRef.current = endSession; }, [endSession]);
 
@@ -207,6 +237,11 @@ function InterviewRoomInner({
         const parsed = JSON.parse(new TextDecoder().decode(payload));
         console.log("[interview] data received:", parsed);
         if (parsed.type === "question_progress" && typeof parsed.current === "number") {
+          // Mark that we're waiting for the agent to start speaking the next
+          // question. This suppresses the fallback timer until agent_speaking
+          // or timer_started arrives, preventing a premature 15s countdown
+          // while the agent is still generating its reply.
+          awaitingAgentSpeechRef.current = true;
           setCurrentQuestion(parsed.current);
           setInterviewActive(true);
           interviewActiveRef.current = true;
@@ -217,6 +252,7 @@ function InterviewRoomInner({
         }
         if (parsed.type === "timer_started" && !sessionEndedRef.current) {
           console.log("[interview] timer_started remaining=", parsed.remaining, "interviewActive=", interviewActiveRef.current);
+          awaitingAgentSpeechRef.current = false;
           setInterviewActive(true);
           interviewActiveRef.current = true;
           setGraceActive(false);
@@ -226,14 +262,19 @@ function InterviewRoomInner({
         }
         if (parsed.type === "agent_speaking") {
           console.log("[interview] agent_speaking — clearing countdown (agent is speaking)");
+          awaitingAgentSpeechRef.current = false;
           clearCountdownRef.current();
           setGraceActive(false);
           setUserSpeaking(false);
           userSpeakingRef.current = false;
         }
         if (parsed.type === "user_speaking") {
-          console.log("[interview] user_speaking — clearing countdown");
-          clearCountdownRef.current();
+          console.log("[interview] user_speaking — freezing countdown at", parsed.remaining);
+          freezeCountdownRef.current();
+          // Update the frozen timer value if provided by backend
+          if (typeof parsed.remaining === "number") {
+            setNoResponseSecondsLeft(parsed.remaining);
+          }
           setGraceActive(false);
           setUserSpeaking(true);
           userSpeakingRef.current = true;
@@ -424,9 +465,10 @@ function InterviewRoomInner({
         const isUrgent = noResponseSecondsLeft <= 5;
         const isWarning = noResponseSecondsLeft <= 10;
         const ringColor = isUrgent ? "#ef4444" : isWarning ? "#f59e0b" : "#22c55e";
+        const isFrozen = userSpeaking; // Timer is frozen when user is speaking
         return (
           <div className="flex flex-col items-center gap-1">
-            <div className={cn("relative", isUrgent && "animate-pulse")}>
+            <div className={cn("relative", isUrgent && !isFrozen && "animate-pulse")}>
               <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
                 {/* background track */}
                 <circle
@@ -444,7 +486,7 @@ function InterviewRoomInner({
                   strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={dashoffset}
-                  style={{ transition: "stroke-dashoffset 0.9s linear, stroke 0.3s" }}
+                  style={{ transition: isFrozen ? "none" : "stroke-dashoffset 0.9s linear, stroke 0.3s" }}
                 />
               </svg>
               {/* number in centre */}
@@ -455,7 +497,9 @@ function InterviewRoomInner({
                 {noResponseSecondsLeft}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">seconds to respond</p>
+            <p className="text-xs text-muted-foreground">
+              {isFrozen ? "timer paused" : "seconds to respond"}
+            </p>
           </div>
         );
       })()}

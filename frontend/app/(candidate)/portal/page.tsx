@@ -17,6 +17,12 @@ import { Badge } from "@/components/ui/badge";
 import { StatusTracker } from "@/components/candidate/status-tracker";
 import type { ApplicationStatus } from "@/components/candidate/status-tracker";
 
+interface InterviewSession {
+  id: string;
+  status: string;
+  started_at: string;
+}
+
 interface Application {
   id: string;
   status: ApplicationStatus;
@@ -27,6 +33,7 @@ interface Application {
     title: string;
     department: string | null;
   } | null;
+  interview_sessions?: InterviewSession[];
 }
 
 function formatDate(dateStr: string) {
@@ -83,7 +90,7 @@ export default function CandidatePortalPage() {
 
     setCandidateId(candidate.id);
 
-    // Fetch applications with hiring post info
+    // Fetch applications with hiring post info AND interview sessions
     const { data: apps } = await supabase
       .from("applications")
       .select(
@@ -96,6 +103,11 @@ export default function CandidatePortalPage() {
           id,
           title,
           department
+        ),
+        interview_sessions (
+          id,
+          status,
+          started_at
         )
       `
       )
@@ -110,6 +122,7 @@ export default function CandidatePortalPage() {
   }, [supabase]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchApplications();
   }, [fetchApplications]);
 
@@ -176,9 +189,33 @@ export default function CandidatePortalPage() {
         {applications.map((app) => {
           const jobTitle = app.hiring_post?.title ?? "Untitled Position";
           const company = app.hiring_post?.department ?? "General";
+          
+          // Check if any interview session exists for this application
+          const hasSession = (app.interview_sessions?.length ?? 0) > 0;
+          const latestSession = app.interview_sessions?.[0];
+          
+          // Per spec: Once a session starts, candidate can NEVER restart
+          // Show button ONLY if: invited/sent status, within deadline, AND no session exists
           const showInterviewButton =
             (app.status === "interview_invited" || app.status === "interview_sent") &&
-            isWithinDeadline(app.interview_deadline);
+            isWithinDeadline(app.interview_deadline) &&
+            !hasSession;
+          
+          // Determine status message if session exists
+          let sessionMessage = "";
+          if (hasSession && latestSession) {
+            if (latestSession.status === "completed") {
+              sessionMessage = "Interview completed";
+            } else if (latestSession.status === "terminated_tab_switch") {
+              sessionMessage = "Interview terminated due to tab switch violation";
+            } else if (latestSession.status === "terminated_abandoned") {
+              sessionMessage = "Interview session ended";
+            } else if (latestSession.status === "in_progress") {
+              sessionMessage = "Interview in progress";
+            } else {
+              sessionMessage = "Interview session exists";
+            }
+          }
 
           return (
             <Card key={app.id}>
@@ -208,6 +245,13 @@ export default function CandidatePortalPage() {
                       Deadline: {formatDate(app.interview_deadline)}
                     </span>
                   )}
+                </CardFooter>
+              )}
+              {hasSession && sessionMessage && (
+                <CardFooter>
+                  <div className="w-full rounded-lg border border-muted bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                    {sessionMessage}
+                  </div>
                 </CardFooter>
               )}
             </Card>

@@ -30,7 +30,7 @@ export default function CandidatesRealtime({
           table: "applications",
           filter: `hiring_post_id=eq.${hiringPostId}`,
         },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           const updated = payload.new as Record<string, unknown>;
           // Re-fetch the full record with joins so resume_data (breakdown details) is fresh
           const { data: fullApp } = await supabase
@@ -58,7 +58,7 @@ export default function CandidatesRealtime({
           table: "applications",
           filter: `hiring_post_id=eq.${hiringPostId}`,
         },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           // Fetch the full record with joins for a new application
           const newApp = payload.new as Record<string, unknown>;
           const { data: fullApp } = await supabase

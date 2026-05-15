@@ -16,12 +16,15 @@ RUN pip install uv
 # Copy dependency files first for layer caching
 COPY pyproject.toml uv.lock ./
 
-# Sync production dependencies
-RUN uv sync --no-dev
+# Install dependencies only (skip installing the project itself)
+RUN uv sync --no-dev --no-install-project
 
 # Copy application code
 COPY app/ app/
 COPY run_agent.py start_api.py ./
+
+# Now install the project (app/ exists at this point)
+RUN uv sync --no-dev
 
 EXPOSE 8000
 
