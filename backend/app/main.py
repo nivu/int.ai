@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     global _celery_proc
     
     _celery_proc = subprocess.Popen(
-        [sys.executable, "-m", "celery", "-A", "app.worker", "worker", "--loglevel=info"],
+        [sys.executable, "-m", "celery", "-A", "app.worker", "worker", "--loglevel=info", "--concurrency=2"],
         stdout=None,  # inherit so logs appear in the same terminal
         stderr=None,
     )
