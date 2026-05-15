@@ -37,7 +37,7 @@ export default function CandidatesAllClient({
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "applications" },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           const updated = payload.new as Record<string, unknown>;
           // Ignore applications that don't belong to this org's jobs
           if (!jobIds.has(updated.hiring_post_id as string)) return;
@@ -64,7 +64,7 @@ export default function CandidatesAllClient({
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "applications" },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           const newApp = payload.new as Record<string, unknown>;
           if (!jobIds.has(newApp.hiring_post_id as string)) return;
 
