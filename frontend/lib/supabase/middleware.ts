@@ -10,6 +10,7 @@ export async function updateSession(request: NextRequest) {
   if (
     pathname.startsWith("/apply/") ||
     pathname.startsWith("/auth/") ||
+    pathname.startsWith("/interview/start") ||
     pathname === "/"
   ) {
     return supabaseResponse;
