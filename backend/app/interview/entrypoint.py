@@ -152,6 +152,9 @@ async def entrypoint(ctx: JobContext) -> None:
     # Conversation state
     # ------------------------------------------------------------------
     _last_agent_text: list[str] = [""]
+    # Stores only the pure question text for repeats — never includes the
+    # LLM's acknowledgement prefix ("Great answer! Now...").
+    _repeatable_question: list[str] = [""]
     _qa_number: list[int] = [0]
 
     _interview_phase: list[str] = ["greeting"]   # "greeting" | "interview"
@@ -379,6 +382,7 @@ async def entrypoint(ctx: JobContext) -> None:
             # Set the active question text so the timer guard works on the
             # next agent_state_changed → listening event.
             _last_agent_text[0] = next_q_text if next_q_text else ""
+            _repeatable_question[0] = next_q_text if next_q_text else ""
             logger.info("Skipped Q#%d, spoke Q#%d directly session=%s", current_q, next_q, session_id)
             # Timer will be armed by _on_agent_state_changed when agent → listening
             return
@@ -402,6 +406,7 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("Failed to pre-generate Q#%d session=%s", next_q, session_id)
 
         _current_question_topic[0] = next_q_topic
+        _repeatable_question[0] = next_q_text if next_q_text else ""
 
         try:
             controller.explicit_generate_count += 1
@@ -635,6 +640,10 @@ async def entrypoint(ctx: JobContext) -> None:
             content = _extract_text(item)
             if content:
                 _last_agent_text[0] = content
+                # For Q1 (before any _do_advance has set _repeatable_question),
+                # treat the full agent text as the repeatable question.
+                if not _repeatable_question[0]:
+                    _repeatable_question[0] = content
 
         elif role == "user":
             content = _extract_text(item)
@@ -670,7 +679,11 @@ async def entrypoint(ctx: JobContext) -> None:
             if content and _is_repeat_request(content):
                 if not _repeat_used[0]:
                     _repeat_used[0] = True
-                    question_to_repeat = _last_agent_text[0]
+                    # Use _repeatable_question (pure question text only) so the
+                    # repeat never includes the LLM's acknowledgement of the
+                    # previous answer. Fall back to _last_agent_text for Q1
+                    # where no separate question text has been stored yet.
+                    question_to_repeat = _repeatable_question[0] or _last_agent_text[0]
                     logger.info("Repeat (first) Q#%d session=%s", _qa_number[0] + 1, session_id)
 
                     async def _do_repeat() -> None:
