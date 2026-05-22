@@ -36,11 +36,11 @@ def _resolve_candidate(sb, token: str) -> tuple[str, str]:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    cand_resp = sb.table("candidates").select("id, auth_user_id").eq("email", user_email).maybe_single().execute()
+    cand_resp = sb.table("candidates").select("id, auth_user_id").eq("email", user_email).execute()
     if not cand_resp.data:
         raise HTTPException(status_code=404, detail="No candidate record found for this account")
 
-    cand = cand_resp.data
+    cand = cand_resp.data[0]
     # Auto-link auth_user_id if not yet set
     if not cand.get("auth_user_id"):
         sb.table("candidates").update({"auth_user_id": user_id}).eq("id", cand["id"]).execute()
