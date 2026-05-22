@@ -139,6 +139,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         candidate = get_record("candidates", application["candidate_id"])
         candidate_email = candidate.get("email", "")
         candidate_name = candidate.get("full_name", "")
+        interview_url = f"{settings.FRONTEND_URL}/interview"
 
         # 11. Auto-advance logic — binary outcome, no manual review band
         if overall_score >= threshold:
@@ -165,22 +166,6 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                     logger.info("Interview session created for application=%s", application_id)
                 except Exception:
                     logger.exception("Failed to create interview session for application=%s", application_id)
-
-            # Generate magic link token for one-click interview access
-            import secrets
-            magic_token = secrets.token_hex(32)
-            interview_url = f"{settings.FRONTEND_URL}/interview/start?token={magic_token}"
-            try:
-                insert_record("interview_magic_tokens", {
-                    "token": magic_token,
-                    "candidate_email": candidate_email,
-                    "application_id": application_id,
-                    "expires_at": deadline_dt.isoformat(),
-                })
-                logger.info("Magic token created for application=%s", application_id)
-            except Exception:
-                logger.exception("Failed to create magic token for application=%s — falling back to plain URL", application_id)
-                interview_url = f"{settings.FRONTEND_URL}/interview"
 
             if candidate_email:
                 try:
