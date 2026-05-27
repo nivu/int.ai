@@ -33,9 +33,11 @@ function formatTime(seconds: number): string {
 // ---------------------------------------------------------------------------
 
 function InterviewRoomInner({
+  sessionId,
   maxQuestions,
   onSessionEnd,
 }: {
+  sessionId: string;
   maxQuestions: number;
   onSessionEnd: () => void;
 }) {
@@ -567,7 +569,7 @@ export function InterviewRoom({
       data-session-id={sessionId}
     >
       <RoomAudioRenderer />
-      <InterviewRoomInner maxQuestions={maxQuestions} onSessionEnd={onSessionEnd} />
+      <InterviewRoomInner sessionId={sessionId} maxQuestions={maxQuestions} onSessionEnd={onSessionEnd} />
     </LiveKitRoom>
   );
 }
