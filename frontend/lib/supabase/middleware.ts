@@ -83,10 +83,12 @@ export async function updateSession(request: NextRequest) {
     if (!user) return redirectTo("/auth/login");
   }
 
-  // Candidate portal / interview routes
-  if (pathname.startsWith("/portal") || pathname.startsWith("/interview")) {
+  // Candidate portal — requires Supabase auth
+  if (pathname.startsWith("/portal")) {
     if (!user) return redirectTo("/auth/login?type=candidate");
   }
+  // /interview routes are intentionally public — invite-token auth is handled
+  // at the page level so candidates can enter directly from their invite email.
 
   return supabaseResponse;
 }

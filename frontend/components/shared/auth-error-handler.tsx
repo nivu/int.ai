@@ -16,6 +16,11 @@ export function AuthErrorHandler() {
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event: string) => {
       if (event === "SIGNED_OUT") {
+        // Clear all stale Supabase tokens from localStorage so the dead
+        // refresh token doesn't trigger the same error on the next page load.
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith("sb-")) localStorage.removeItem(key);
+        });
         const isCandidate =
           window.location.pathname.startsWith("/portal") ||
           window.location.pathname.startsWith("/interview");

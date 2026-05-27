@@ -33,9 +33,11 @@ function formatTime(seconds: number): string {
 // ---------------------------------------------------------------------------
 
 function InterviewRoomInner({
+  sessionId,
   maxQuestions,
   onSessionEnd,
 }: {
+  sessionId: string;
   maxQuestions: number;
   onSessionEnd: () => void;
 }) {
@@ -92,14 +94,23 @@ function InterviewRoomInner({
     setNoResponseSecondsLeft(null);
   }, []);
 
-  const endSession = useCallback(() => {
+  const endSession = useCallback(async () => {
     if (sessionEndedRef.current) return;
     sessionEndedRef.current = true;
     clearCountdown();
     sessionStorage.removeItem("interview_room");
     setSessionEnded(true);
+    try {
+      await fetch("/api/proxy/api/v1/interview/end-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+    } catch {
+      // best-effort — proceed to redirect regardless
+    }
     onSessionEnd();
-  }, [clearCountdown, onSessionEnd]);
+  }, [clearCountdown, onSessionEnd, sessionId]);
 
   const startCountdown = useCallback((from: number = NO_RESPONSE_TIMEOUT) => {
     console.log("[interview] startCountdown from=", from, "interviewActive=", interviewActiveRef.current);
@@ -558,7 +569,7 @@ export function InterviewRoom({
       data-session-id={sessionId}
     >
       <RoomAudioRenderer />
-      <InterviewRoomInner maxQuestions={maxQuestions} onSessionEnd={onSessionEnd} />
+      <InterviewRoomInner sessionId={sessionId} maxQuestions={maxQuestions} onSessionEnd={onSessionEnd} />
     </LiveKitRoom>
   );
 }

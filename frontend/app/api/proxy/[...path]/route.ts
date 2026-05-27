@@ -14,10 +14,12 @@ async function proxy(
   const url = `${BACKEND_URL}/${joined}${request.nextUrl.search}`;
 
   const authorization = request.headers.get("authorization") ?? "";
+  const inviteToken = request.headers.get("x-invite-token") ?? "";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (authorization) headers["Authorization"] = authorization;
+  if (inviteToken) headers["X-Invite-Token"] = inviteToken;
 
   const init: RequestInit = { method: request.method, headers };
   if (request.method !== "GET" && request.method !== "HEAD") {

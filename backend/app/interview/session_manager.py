@@ -97,11 +97,12 @@ async def start_session_from_existing(session_id: str) -> dict[str, Any]:
     identity = f"candidate-{session_id}"
     candidate_token, expires_at = _generate_candidate_token(room_name, identity)
 
-    # Update session to in_progress
+    # Update session to in_progress and record consent (clicking "Ready" = consent given)
     update_record("interview_sessions", session_id, {
         "livekit_room_name": room_name,
         "status": "in_progress",
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "consent_given_at": datetime.now(timezone.utc).isoformat(),
     })
 
     logger.info(

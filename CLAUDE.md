@@ -81,4 +81,12 @@ See `.specify/memory/constitution.md` for full principles. Key rules:
 - 001-hiring-automation-platform: AI hiring automation (resume screening + voice interviews)
 
 <!-- MANUAL ADDITIONS START -->
+## Communication Style
+
+When explaining anything — a bug, a fix, a decision, a concept — always provide two layers:
+
+1. **Technical explanation**: the precise details (what code changed, why, what the exact behavior is).
+2. **Plain English explanation**: a simplified version immediately after, written as if explaining to someone who doesn't code. No jargon, no acronyms, just what it means in practice.
+
+Keep both short. The plain English version should make the technical one optional to read.
 <!-- MANUAL ADDITIONS END -->

@@ -144,6 +144,17 @@ export default function CandidatePortalPage() {
           fetchApplications();
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "interview_sessions",
+        },
+        () => {
+          fetchApplications();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -194,16 +205,18 @@ export default function CandidatePortalPage() {
           const hasSession = (app.interview_sessions?.length ?? 0) > 0;
           const latestSession = app.interview_sessions?.[0];
           
-          // Per spec: Once a session starts, candidate can NEVER restart
-          // Show button ONLY if: invited/sent status, within deadline, AND no session exists
+          // A pending session means the invite was sent but the interview hasn't started.
+          // The screening task pre-creates a pending session alongside the invitation email,
+          // so we must allow the button when status is pending (not just when no session exists).
+          const sessionStarted = hasSession && latestSession && latestSession.status !== "pending";
           const showInterviewButton =
             (app.status === "interview_invited" || app.status === "interview_sent") &&
             isWithinDeadline(app.interview_deadline) &&
-            !hasSession;
-          
-          // Determine status message if session exists
+            !sessionStarted;
+
+          // Determine status message if session exists and is past pending
           let sessionMessage = "";
-          if (hasSession && latestSession) {
+          if (hasSession && latestSession && latestSession.status !== "pending") {
             if (latestSession.status === "completed") {
               sessionMessage = "Interview completed";
             } else if (latestSession.status === "terminated_tab_switch") {
@@ -212,8 +225,6 @@ export default function CandidatePortalPage() {
               sessionMessage = "Interview session ended";
             } else if (latestSession.status === "in_progress") {
               sessionMessage = "Interview in progress";
-            } else {
-              sessionMessage = "Interview session exists";
             }
           }
 
