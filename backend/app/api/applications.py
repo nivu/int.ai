@@ -141,24 +141,6 @@ async def submit_application(body: SubmitApplicationRequest) -> SubmitApplicatio
         logger.exception("Failed to create application")
         raise HTTPException(status_code=500, detail=f"Failed to create application: {exc}") from exc
 
-    # 4. Trigger screening asynchronously (best-effort)
-    try:
-        from app.tasks.screen_resume import screen_resume_task
-
-        screen_resume_task.delay(application_id, body.hiring_post_id)
-        logger.info(
-            "Dispatched screen_resume_task for application_id=%s", application_id
-        )
-    except ImportError:
-        logger.warning(
-            "screen_resume task module not available — skipping screening for application_id=%s",
-            application_id,
-        )
-    except Exception:
-        logger.exception(
-            "Failed to dispatch screening task for application_id=%s", application_id
-        )
-
     return SubmitApplicationResponse(
         application_id=application_id,
         candidate_id=candidate_id,

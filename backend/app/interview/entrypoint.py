@@ -382,7 +382,8 @@ async def entrypoint(ctx: JobContext) -> None:
             # Set the active question text so the timer guard works on the
             # next agent_state_changed → listening event.
             _last_agent_text[0] = next_q_text if next_q_text else ""
-            _repeatable_question[0] = next_q_text if next_q_text else ""
+            if next_q_text:
+                _repeatable_question[0] = next_q_text
             logger.info("Skipped Q#%d, spoke Q#%d directly session=%s", current_q, next_q, session_id)
             # Timer will be armed by _on_agent_state_changed when agent → listening
             return
@@ -406,7 +407,8 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("Failed to pre-generate Q#%d session=%s", next_q, session_id)
 
         _current_question_topic[0] = next_q_topic
-        _repeatable_question[0] = next_q_text if next_q_text else ""
+        if next_q_text:
+            _repeatable_question[0] = next_q_text
 
         try:
             controller.explicit_generate_count += 1
@@ -640,9 +642,11 @@ async def entrypoint(ctx: JobContext) -> None:
             content = _extract_text(item)
             if content:
                 _last_agent_text[0] = content
-                # For Q1 (before any _do_advance has set _repeatable_question),
-                # treat the full agent text as the repeatable question.
-                if not _repeatable_question[0]:
+                # For Q1 only (before any _do_advance has run), treat the full
+                # agent text as the repeatable question. After Q1, _do_advance
+                # always sets _repeatable_question to the pre-generated question
+                # text — never let a later LLM utterance overwrite it.
+                if not _repeatable_question[0] and _qa_number[0] == 0:
                     _repeatable_question[0] = content
 
         elif role == "user":

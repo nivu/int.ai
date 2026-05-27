@@ -19,9 +19,8 @@ export default function InterviewSessionPage() {
   const [roomData, setRoomData] = useState<RoomData | null>(null);
   const [completed, setCompleted] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [isInviteTokenUser, setIsInviteTokenUser] = useState(false);
 
-  // True once the room is rendered and the interview is in progress.
-  // Only while this is true do we fire the beacon and guard history.
   const sessionActiveRef = useRef(false);
 
   useEffect(() => {
@@ -30,8 +29,6 @@ export default function InterviewSessionPage() {
     async function validateAndInit() {
       const raw = sessionStorage.getItem("interview_room");
       if (!raw) {
-        // No session data — either never started or already completed/terminated.
-        // Send to portal, not back to /interview, so they can't restart.
         router.replace("/portal");
         return;
       }
@@ -46,33 +43,35 @@ export default function InterviewSessionPage() {
         return;
       }
 
-      // ── Server-side session status check ────────────────────────────────
-      // Re-use my-session to verify the session is still enterable.  A 403
-      // means completed / terminated → send to portal, never show interview UI.
+      const inviteToken = sessionStorage.getItem("invite_token");
+      if (inviteToken) setIsInviteTokenUser(true);
+
+      // Re-check session status — 403 means completed/terminated, never show room
       try {
         const supabase = createClient();
         const { data: { session: authSession } } = await supabase.auth.getSession();
-        await backendFetch("/api/v1/interview/my-session", {
-          token: authSession?.access_token ?? undefined,
-        });
+
+        const fetchOptions: RequestInit & { token?: string } = inviteToken
+          ? { headers: { "X-Invite-Token": inviteToken } }
+          : { token: authSession?.access_token ?? undefined };
+
+        await backendFetch("/api/v1/interview/my-session", fetchOptions);
       } catch (err: unknown) {
         if ((err as { status?: number })?.status === 403) {
           sessionStorage.removeItem("interview_room");
           router.replace("/portal?session_ended=1");
           return;
         }
-        // Non-403 errors (network, etc.) — let the LiveKit room handle it.
+        // Non-403 errors — let the LiveKit room handle it
       }
 
       setRoomData(data);
       setChecking(false);
 
-      // ── History API: intercept back button while session is active ───────
       window.history.pushState({ interviewActive: true }, "");
 
       const handlePopState = () => {
         if (!sessionActiveRef.current) return;
-        // Re-push so the URL stays on this page while we redirect
         window.history.pushState({ interviewActive: true }, "");
         sendAbandonBeacon(data.sessionId);
         sessionStorage.removeItem("interview_room");
@@ -81,14 +80,7 @@ export default function InterviewSessionPage() {
       window.addEventListener("popstate", handlePopState);
       cleanupFns.push(() => window.removeEventListener("popstate", handlePopState));
 
-      // ── beforeunload: beacon on page refresh / tab close ────────────────
-      // ALSO clear sessionStorage synchronously so that if the user refreshes,
-      // the session page finds no data and redirects to /interview instead of
-      // re-entering the interview room.
       const handleBeforeUnload = () => {
-        // Always clear storage on any unload — this is the key guard.
-        // Even if the session is already ended (tab violation screen, completed
-        // screen), clearing here ensures a refresh never re-enters the room.
         sessionStorage.removeItem("interview_room");
         if (sessionActiveRef.current) {
           sendAbandonBeacon(data.sessionId);
@@ -103,25 +95,49 @@ export default function InterviewSessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Mark session active once room data is available AND clear storage
-  // immediately on any terminal event so a refresh can never re-enter.
   useEffect(() => {
     if (roomData) sessionActiveRef.current = true;
   }, [roomData]);
 
-  // Redirect to portal on session end; clear active flag first.
-  // No ?session_ended param — the interview completed normally.
   useEffect(() => {
     if (completed) {
       sessionActiveRef.current = false;
-      router.replace("/portal");
+      // Invite-token users can't access /portal without a Supabase session —
+      // stay on page so they see the "Interview Complete" message from the room component.
+      if (!isInviteTokenUser) {
+        router.replace("/portal");
+      }
     }
-  }, [completed, router]);
+  }, [completed, isInviteTokenUser, router]);
 
   const livekitUrl =
     roomData?.serverUrl ||
     process.env.NEXT_PUBLIC_LIVEKIT_URL ||
     "";
+
+  // Invite-token users: after completion, show a thank-you screen instead of
+  // spinning while waiting for a /portal redirect that requires Supabase auth.
+  if (completed && isInviteTokenUser) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950">
+          <svg
+            className="h-7 w-7 text-emerald-600 dark:text-emerald-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h2 className="text-lg font-semibold">Interview Complete</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your responses have been recorded. You can now close this tab.
+        </p>
+      </div>
+    );
+  }
 
   if (checking || !roomData || completed) {
     return (
@@ -148,9 +164,6 @@ export default function InterviewSessionPage() {
 }
 
 function sendAbandonBeacon(sessionId: string) {
-  // Route through the Next.js proxy so the browser never hits the backend directly.
-  // Use a Blob with application/json so FastAPI parses the body correctly —
-  // sendBeacon sends text/plain by default which causes a 422.
   navigator.sendBeacon(
     "/api/proxy/api/v1/interview/terminate-abandoned",
     new Blob([JSON.stringify({ session_id: sessionId })], { type: "application/json" })

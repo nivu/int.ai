@@ -16,7 +16,7 @@ from app.models.interview import (
     ReconnectResponse,
 )
 from app.config import settings
-from app.interview.session_manager import reconnect_session, start_session_from_existing
+from app.interview.session_manager import end_session, reconnect_session, start_session_from_existing
 from app.worker import celery_app
 
 _TERMINATED_STATUSES = frozenset({"terminated_tab_switch", "terminated_abandoned"})
@@ -24,6 +24,30 @@ _TERMINATED_STATUSES = frozenset({"terminated_tab_switch", "terminated_abandoned
 logger = logging.getLogger("int.ai")
 
 router = APIRouter(prefix="/interview", tags=["interview"])
+
+
+def _resolve_candidate_from_invite_token(sb, invite_token: str) -> str:
+    """Validate an invite token and return the candidate_id."""
+    session_result = (
+        sb.table("interview_sessions")
+        .select("id, status, application_id")
+        .eq("invite_token", invite_token)
+        .execute()
+    )
+    if not session_result.data:
+        raise HTTPException(status_code=401, detail="Invalid invite link")
+    session = session_result.data[0]
+    if session["status"] in ("completed", *_TERMINATED_STATUSES):
+        raise HTTPException(status_code=403, detail="Interview already completed. Retakes are not permitted.")
+    app_result = (
+        sb.table("applications")
+        .select("candidate_id")
+        .eq("id", session["application_id"])
+        .execute()
+    )
+    if not app_result.data:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return app_result.data[0]["candidate_id"]
 
 
 def _resolve_candidate(sb, token: str) -> tuple[str, str]:
@@ -65,7 +89,8 @@ async def link_candidate(authorization: str = Header(...)) -> dict:
 
 @router.get("/my-session", response_model=PendingSessionResponse)
 async def get_my_session(
-    authorization: str = Header(...),
+    authorization: str = Header(default=""),
+    x_invite_token: str = Header(default=""),
 ) -> PendingSessionResponse:
     """Return the candidate's pending interview session, creating it if missing.
 
@@ -78,8 +103,13 @@ async def get_my_session(
 
     from app.services.supabase import supabase as sb
 
-    token = authorization.removeprefix("Bearer ").strip()
-    _, candidate_id = _resolve_candidate(sb, token)
+    if x_invite_token:
+        candidate_id = _resolve_candidate_from_invite_token(sb, x_invite_token)
+    elif authorization:
+        token = authorization.removeprefix("Bearer ").strip()
+        _, candidate_id = _resolve_candidate(sb, token)
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     # Find application in interview_sent/invited status only — no retakes allowed
     apps_resp = (
@@ -240,6 +270,36 @@ async def reconnect(body: ReconnectRequest) -> ReconnectResponse:
         candidate_token=result["candidate_token"],
         expires_at=result["expires_at"],
     )
+
+
+@router.post("/end-session", status_code=200)
+async def end_session_route(session_id: str = Body(..., embed=True)) -> dict:
+    """Mark an in-progress session as completed and enqueue evaluation.
+
+    Called by the candidate's 'End Interview' button. Idempotent — if the
+    session is already completed or terminated, it is left untouched.
+    """
+    from app.services.supabase import supabase as sb
+    try:
+        row = (
+            sb.table("interview_sessions")
+            .select("status")
+            .eq("id", session_id)
+            .execute()
+        )
+        if not row or not row.data:
+            raise HTTPException(status_code=404, detail="Session not found")
+        current_status = row.data[0]["status"]
+        if current_status not in ("in_progress", "pending"):
+            # Already completed/terminated — nothing to do
+            return {"status": "ok", "session_status": current_status}
+        await end_session(session_id)
+        return {"status": "ok", "session_status": "completed"}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to end session %s", session_id)
+        raise HTTPException(status_code=500, detail="Failed to end session")
 
 
 @router.post("/terminate-abandoned", status_code=200)

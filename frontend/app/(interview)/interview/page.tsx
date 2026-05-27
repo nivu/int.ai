@@ -48,27 +48,41 @@ export default function InterviewPage() {
   useEffect(() => {
     async function fetchPendingSession() {
       try {
-        const supabase = createClient();
-        const {
-          data: { session: authSession },
-        } = await supabase.auth.getSession();
-        if (!authSession?.access_token) {
-          setLoading(false);
-          return;
+        // Read invite token from URL if present and persist it
+        const params = new URLSearchParams(window.location.search);
+        const urlToken = params.get("token");
+        if (urlToken) {
+          sessionStorage.setItem("invite_token", urlToken);
+        }
+        const inviteToken = sessionStorage.getItem("invite_token");
+
+        let fetchOptions: RequestInit & { token?: string } = {};
+
+        if (inviteToken) {
+          fetchOptions = { headers: { "X-Invite-Token": inviteToken } };
+        } else {
+          const supabase = createClient();
+          const {
+            data: { session: authSession },
+          } = await supabase.auth.getSession();
+          if (!authSession?.access_token) {
+            setLoading(false);
+            return;
+          }
+          fetchOptions = { token: authSession.access_token };
         }
 
-        const data = await backendFetch<InterviewSession>("/api/v1/interview/my-session", {
-          token: authSession.access_token,
-        });
+        const data = await backendFetch<InterviewSession>(
+          "/api/v1/interview/my-session",
+          fetchOptions
+        );
         setSession(data);
       } catch (err: unknown) {
         const status = (err as { status?: number })?.status;
         if (status === 403) {
-          // Already completed — redirect to portal, no need to show a screen
           router.replace("/portal");
           return;
         } else if (status === 401) {
-          // Session expired; force re-auth by going to login.
           router.replace("/auth/login");
           return;
         } else if (status === 502) {
@@ -77,14 +91,13 @@ export default function InterviewPage() {
         } else if (status !== 404) {
           setError("Failed to load interview details. Please try again.");
         }
-        // 404 = no pending interview, leave session as null → shows "No Interview Available"
       } finally {
         setLoading(false);
       }
     }
 
     fetchPendingSession();
-  }, []);
+  }, [router]);
 
   const handleReady = useCallback(async () => {
     if (!session) return;
@@ -92,19 +105,24 @@ export default function InterviewPage() {
     setError(null);
 
     try {
+      const inviteToken = sessionStorage.getItem("invite_token");
+
+      // Record consent via Supabase only for authenticated users;
+      // invite-token users have consent recorded by the backend on room creation.
+      if (!inviteToken) {
+        const supabase = createClient();
+        await supabase
+          .from("interview_sessions")
+          .update({ consent_given_at: new Date().toISOString() })
+          .eq("id", session.id);
+      }
+
       const supabase = createClient();
       const {
         data: { session: authSession },
       } = await supabase.auth.getSession();
       const accessToken = authSession?.access_token;
 
-      // Record consent
-      await supabase
-        .from("interview_sessions")
-        .update({ consent_given_at: new Date().toISOString() })
-        .eq("id", session.id);
-
-      // Request LiveKit room token from backend
       const { token, server_url } = await backendFetch<CreateRoomResponse>(
         "/api/v1/interview/create-room",
         {
@@ -114,7 +132,6 @@ export default function InterviewPage() {
         }
       );
 
-      // Store in sessionStorage so the session page can pick it up
       sessionStorage.setItem(
         "interview_room",
         JSON.stringify({
@@ -155,9 +172,19 @@ export default function InterviewPage() {
     );
   }
 
+  const isInAppBrowser =
+    typeof navigator !== "undefined" &&
+    /Instagram|FBAN|FBAV|Twitter|LinkedInApp|GSA|Line\//.test(navigator.userAgent);
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      {/* Interview details */}
+      {isInAppBrowser && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          <strong>Open in your browser for best results.</strong> Tap the menu (⋮ or
+          share icon) and choose &quot;Open in Chrome&quot; or &quot;Open in Safari&quot; before starting
+          the interview.
+        </div>
+      )}
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -194,20 +221,17 @@ export default function InterviewPage() {
         </CardContent>
       </Card>
 
-      {/* Checklist */}
       <InterviewChecklist
         duration={session.template.max_duration_minutes}
         onReady={handleReady}
       />
 
-      {/* Error message */}
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
           {error}
         </div>
       )}
 
-      {/* Starting overlay */}
       {starting && (
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />

@@ -79,7 +79,9 @@ function LoginForm() {
       setLoading(false);
       return;
     }
-    router.push("/portal");
+    // Candidates arrive via the interview invitation link — send them straight to
+    // the interview page so they don't have to hunt for the "Start Interview" button.
+    router.push("/interview");
   }
 
   return (
