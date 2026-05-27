@@ -139,7 +139,6 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         candidate = get_record("candidates", application["candidate_id"])
         candidate_email = candidate.get("email", "")
         candidate_name = candidate.get("full_name", "")
-        interview_url = f"{settings.FRONTEND_URL}/interview"
 
         # 11. Auto-advance logic — binary outcome, no manual review band
         if overall_score >= threshold:
@@ -154,18 +153,26 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             })
 
             # Create interview session for the candidate
+            invite_token = ""
             template_id = hiring_post.get("interview_template_id")
             if template_id:
                 try:
-                    insert_record("interview_sessions", {
+                    session_record = insert_record("interview_sessions", {
                         "application_id": application_id,
                         "template_id": template_id,
                         "status": "pending",
                         "deadline": deadline_dt.isoformat(),
                     })
+                    invite_token = session_record.get("invite_token", "")
                     logger.info("Interview session created for application=%s", application_id)
                 except Exception:
                     logger.exception("Failed to create interview session for application=%s", application_id)
+
+            interview_url = (
+                f"{settings.FRONTEND_URL}/interview?token={invite_token}"
+                if invite_token
+                else f"{settings.FRONTEND_URL}/interview"
+            )
 
             if candidate_email:
                 try:

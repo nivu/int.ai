@@ -15,7 +15,7 @@ logger = logging.getLogger("int.ai")
 # OpenAI text-embedding-3-small: 1536 dimensions, $0.02/M tokens
 _MODEL = "text-embedding-3-small"
 # Must match the vector(N) dimension declared in resume_data.embedding column
-_DIMENSIONS = 384
+_DIMENSIONS = 1536
 
 
 # ---------------------------------------------------------------------------
