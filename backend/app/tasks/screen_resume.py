@@ -168,10 +168,11 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
                 except Exception:
                     logger.exception("Failed to create interview session for application=%s", application_id)
 
+            base_url = settings.FRONTEND_URL.rstrip("/")
             interview_url = (
-                f"{settings.FRONTEND_URL}/interview?token={invite_token}"
+                f"{base_url}/interview?token={invite_token}"
                 if invite_token
-                else f"{settings.FRONTEND_URL}/interview"
+                else f"{base_url}/interview"
             )
 
             if candidate_email:
