@@ -21,7 +21,7 @@ RUN uv sync --no-dev --no-install-project
 
 # Copy application code
 COPY app/ app/
-COPY run_agent.py start_api.py ./
+COPY run_agent.py start_api.py start_worker_with_cron.py ./
 
 # Now install the project (app/ exists at this point)
 RUN uv sync --no-dev
