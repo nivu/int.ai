@@ -66,7 +66,7 @@ export default function InterviewPage() {
             data: { session: authSession },
           } = await supabase.auth.getSession();
           if (!authSession?.access_token) {
-            setLoading(false);
+            router.replace("/auth/login?type=candidate");
             return;
           }
           fetchOptions = { token: authSession.access_token };
