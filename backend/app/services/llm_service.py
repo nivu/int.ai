@@ -179,7 +179,7 @@ def _call_llm_with_retry(
     except RateLimitError:
         logger.warning("OpenAI rate limit hit, retrying...")
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("OpenAI call failed")
         raise
 
