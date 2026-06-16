@@ -105,7 +105,7 @@ export default function InterviewSessionPage() {
       // Invite-token users can't access /portal without a Supabase session —
       // stay on page so they see the "Interview Complete" message from the room component.
       if (!isInviteTokenUser) {
-        router.replace("/portal");
+        window.location.replace("/portal");
       }
     }
   }, [completed, isInviteTokenUser, router]);

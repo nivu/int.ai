@@ -192,6 +192,7 @@ async def entrypoint(ctx: JobContext) -> None:
         (31, 16,           3.0),    # 16–30 words → 3 s silence
         (float("inf"), 31, 2.0),    # 31+ words  → 2 s silence
     ]
+    
 
     _REPEAT_PHRASES = (
         "repeat", "say that again", "say it again", "come again",
@@ -661,6 +662,7 @@ async def entrypoint(ctx: JobContext) -> None:
                 _cancel_no_response_task()
                 _interview_phase[0] = "interview"
                 _last_agent_text[0] = ""
+                _repeatable_question[0] = ""
                 logger.info("→ interview phase session=%s", session_id)
                 controller.explicit_generate_count += 1
                 try:
