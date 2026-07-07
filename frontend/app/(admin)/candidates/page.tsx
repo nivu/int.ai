@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import CandidatesAllClient from "./candidates-all-client";
+import type { ApplicationRecord } from "@/components/admin/candidate-table";
 
 // ---------------------------------------------------------------------------
 // Server component — all candidates across all jobs for the org
@@ -23,36 +24,40 @@ export default async function AllCandidatesPage() {
 
   const orgId = profile?.org_id;
 
+  // Fetch this org's hiring post IDs so we can scope the applications query
+  const { data: orgPosts } = orgId
+    ? await supabase.from("hiring_posts").select("id").eq("org_id", orgId)
+    : { data: null };
+  const postIds = (orgPosts ?? []).map((p: { id: string }) => p.id);
+  const hasPosts = postIds.length > 0;
+
   // Fetch all applications with joined candidate + resume_data + hiring_post
-  let query = supabase
-    .from("applications")
-    .select(
-      "*, candidate:candidates(*), resume_data:resume_data(*), hiring_post:hiring_posts(id, title)",
-    )
-    .order("overall_score", { ascending: false, nullsFirst: false });
+  let applications: ApplicationRecord[] = [];
+  let jobs: { id: string; title: string }[] = [];
 
-  if (orgId) {
-    // Filter by org through the hiring_posts relationship
-    query = query.eq("hiring_post.org_id", orgId);
+  if (hasPosts) {
+    const { data: apps, error } = await supabase
+      .from("applications")
+      .select(
+        "*, candidate:candidates(*), resume_data:resume_data(*), hiring_post:hiring_posts(id, title)",
+      )
+      .in("hiring_post_id", postIds)
+      .order("overall_score", { ascending: false, nullsFirst: false });
+
+    if (error) {
+      console.error("Error fetching applications:", error);
+    }
+    applications = (apps ?? []) as ApplicationRecord[];
+
+    // Fetch hiring posts for the job filter dropdown
+    const { data: jobsData } = await supabase
+      .from("hiring_posts")
+      .select("id, title")
+      .in("id", postIds)
+      .order("title");
+
+    jobs = (jobsData ?? []) as { id: string; title: string }[];
   }
-
-  const { data: applications, error } = await query;
-
-  if (error) {
-    console.error("Error fetching applications:", error);
-  }
-
-  // Fetch hiring posts for the job filter dropdown
-  let jobsQuery = supabase
-    .from("hiring_posts")
-    .select("id, title")
-    .order("title");
-
-  if (orgId) {
-    jobsQuery = jobsQuery.eq("org_id", orgId);
-  }
-
-  const { data: jobs } = await jobsQuery;
 
   return (
     <div className="space-y-6">

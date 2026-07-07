@@ -67,6 +67,8 @@ class _SessionController:
         max_duration_seconds: int,
         job_title: str = "",
         foundational_ratio: float = 0.6,
+        custom_questions: list[str] | None = None,
+        resume_projects: list[dict] | None = None,
     ) -> None:
         self.session_id = session_id
         self.question_count = 0
@@ -83,6 +85,8 @@ class _SessionController:
             resume_markdown=resume_markdown,
             jd_text=jd_text,
             job_title=job_title,
+            custom_questions=custom_questions,
+            resume_projects=resume_projects,
         )
 
     @property
@@ -95,13 +99,6 @@ class _SessionController:
             self.question_count >= self.max_questions
             or self.elapsed_seconds >= self.max_duration_seconds
         )
-
-    def record_exchange(self, question_text: str, answer_text: str, topic: str) -> None:
-        """Append a completed Q&A exchange to the conversation history."""
-        self.question_gen.conversation_history.append(
-            {"question": question_text, "answer": answer_text, "topic": topic}
-        )
-        self.question_count += 1
 
     def finish(self) -> None:
         """Persist session metadata and trigger the evaluation task."""
@@ -227,11 +224,13 @@ def create_interview_agent(
     resume_markdown: str,
     jd_text: str,
     template_config: dict[str, Any],
+    resume_projects: list[dict] | None = None,
 ) -> tuple[Agent, AgentSession, _SessionController]:
     max_questions: int = template_config.get("max_questions", 10)
     max_duration: int = template_config.get("max_duration_seconds", 1800)
     foundational_ratio: float = template_config.get("foundational_ratio", 0.6)
     job_title: str = template_config.get("job_title", "")
+    custom_questions: list[str] = template_config.get("custom_questions") or []
 
     controller = _SessionController(
         session_id=session_id,
@@ -241,6 +240,8 @@ def create_interview_agent(
         max_duration_seconds=max_duration,
         job_title=job_title,
         foundational_ratio=foundational_ratio,
+        custom_questions=custom_questions,
+        resume_projects=resume_projects,
     )
 
     # -- STT: Deepgram Nova-2, Indian English, streaming ---------------

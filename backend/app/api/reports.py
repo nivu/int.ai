@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
+from app.api.auth import _resolve_admin_org
 from app.services.supabase import get_record, supabase
 
 logger = logging.getLogger("int.ai")
@@ -20,11 +21,17 @@ class OverrideRequest(BaseModel):
 
 
 @router.post("/{report_id}/override", status_code=200)
-async def override_report(report_id: str, body: OverrideRequest) -> dict[str, str]:
+async def override_report(
+    report_id: str,
+    body: OverrideRequest,
+    authorization: str = Header(...),
+) -> dict[str, str]:
     """Save a recruiter manual override for an interview report.
 
     Stores recruiter_override and recruiter_notes on the linked application.
     """
+    caller_org = _resolve_admin_org(authorization)
+
     try:
         report = get_record("interview_reports", report_id)
     except Exception:
@@ -35,6 +42,12 @@ async def override_report(report_id: str, body: OverrideRequest) -> dict[str, st
         application_id: str = session["application_id"]
     except Exception:
         raise HTTPException(status_code=404, detail="Associated session not found")
+
+    # Verify the application belongs to the caller's org
+    app = get_record("applications", application_id)
+    post = get_record("hiring_posts", app["hiring_post_id"])
+    if post["org_id"] != caller_org:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     try:
         supabase.table("applications").update({

@@ -85,70 +85,69 @@ export default async function DashboardPage() {
   const todayISO = todayStart.toISOString();
   const scope = orgPostIds.length > 0;
 
-  const [
-    { count: activePostsCount },
-    { count: totalCandidatesCount },
-    { count: pendingScreeningCount },
-    { count: awaitingReviewCount },
-    { count: interviewSentCount },
-    { count: shortlistedCount },
-    { count: todayCount },
-  ] = await Promise.all([
-    // Active published job posts
-    orgId
-      ? supabase.from("hiring_posts").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "published")
-      : supabase.from("hiring_posts").select("id", { count: "exact", head: true }).eq("status", "published"),
+  let activePostsCount: number | null = 0;
+  let totalCandidatesCount: number | null = 0;
+  let pendingScreeningCount: number | null = 0;
+  let awaitingReviewCount: number | null = 0;
+  let interviewSentCount: number | null = 0;
+  let shortlistedCount: number | null = 0;
+  let todayCount: number | null = 0;
 
-    // Total applicants
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds)
-      : supabase.from("applications").select("id", { count: "exact", head: true }),
+  if (scope) {
+    ([
+      { count: activePostsCount },
+      { count: totalCandidatesCount },
+      { count: pendingScreeningCount },
+      { count: awaitingReviewCount },
+      { count: interviewSentCount },
+      { count: shortlistedCount },
+      { count: todayCount },
+    ] = await Promise.all([
+      // Active published job posts
+      orgId
+        ? supabase.from("hiring_posts").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "published")
+        : supabase.from("hiring_posts").select("id", { count: "exact", head: true }).eq("status", "published"),
 
-    // Submitted but not yet screened (status = applied)
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "applied")
-      : supabase.from("applications").select("id", { count: "exact", head: true }).eq("status", "applied"),
+      // Total applicants
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds),
 
-    // AI-screened, awaiting recruiter review (status = screened)
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "screened")
-      : supabase.from("applications").select("id", { count: "exact", head: true }).eq("status", "screened"),
+      // Submitted but not yet screened (status = applied)
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "applied"),
 
-    // Interview invitation sent, candidate hasn't completed yet
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "interview_sent")
-      : supabase.from("applications").select("id", { count: "exact", head: true }).eq("status", "interview_sent"),
+      // AI-screened, awaiting recruiter review (status = screened)
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "screened"),
 
-    // Shortlisted after interview
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "shortlisted")
-      : supabase.from("applications").select("id", { count: "exact", head: true }).eq("status", "shortlisted"),
+      // Interview invitation sent, candidate hasn't completed yet
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "interview_sent"),
 
-    // Applied today
-    scope
-      ? supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).gte("created_at", todayISO)
-      : supabase.from("applications").select("id", { count: "exact", head: true }).gte("created_at", todayISO),
-  ]);
+      // Shortlisted after interview
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).eq("status", "shortlisted"),
+
+      // Applied today
+      supabase.from("applications").select("id", { count: "exact", head: true }).in("hiring_post_id", orgPostIds).gte("created_at", todayISO),
+    ]));
+  }
 
   // ---- Recent applications ----
-  const recentBase = supabase
-    .from("applications")
-    .select("id, status, overall_score, created_at, candidates(full_name), hiring_posts(title)")
-    .order("created_at", { ascending: false })
-    .limit(8);
-
-  const { data: recentRaw } = orgPostIds.length > 0
-    ? await recentBase.in("hiring_post_id", orgPostIds)
-    : await recentBase;
-
-  const recentApplications = (recentRaw ?? []) as Array<{
+  let recentApplications: Array<{
     id: string;
     status: string;
     overall_score: number | null;
     created_at: string;
     candidates: { full_name: string }[] | { full_name: string } | null;
     hiring_posts: { title: string }[] | { title: string } | null;
-  }>;
+  }> = [];
+
+  if (scope) {
+    const { data: recentRaw } = await supabase
+      .from("applications")
+      .select("id, status, overall_score, created_at, candidates(full_name), hiring_posts(title)")
+      .in("hiring_post_id", orgPostIds)
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    recentApplications = (recentRaw ?? []) as typeof recentApplications;
+  }
 
   // Supabase returns joined rows as arrays or objects depending on cardinality
   function getName(c: typeof recentApplications[0]["candidates"]): string {

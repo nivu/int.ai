@@ -24,8 +24,12 @@ from app.interview.agent import create_interview_agent
 from app.services.supabase import get_record, insert_record
 
 logger = logging.getLogger("int.ai")
-_FINAL_TTS_DRAIN_SECONDS = 1.0
 _NO_RESPONSE_SECONDS = 15
+
+_FALLBACK_QUESTION = (
+    "Could you walk me through your most significant technical project "
+    "and the specific challenges you faced?"
+)
 
 
 def prewarm(proc: JobProcess) -> None:
@@ -76,6 +80,7 @@ async def entrypoint(ctx: JobContext) -> None:
     template_id: str = session_record.get("template_id", "")
 
     resume_markdown = ""
+    resume_projects: list[dict] = []
     jd_text = ""
     hiring_post: dict = {}
     try:
@@ -83,10 +88,11 @@ async def entrypoint(ctx: JobContext) -> None:
         hiring_post_id = application.get("hiring_post_id", "")
 
         from app.services.supabase import supabase
-        rd = supabase.table("resume_data").select("raw_markdown").eq(
+        rd = supabase.table("resume_data").select("raw_markdown, parsed_projects").eq(
             "application_id", application_id).limit(1).execute()
         if rd.data:
             resume_markdown = rd.data[0].get("raw_markdown", "")
+            resume_projects = rd.data[0].get("parsed_projects") or []
 
         if hiring_post_id:
             hiring_post = get_record("hiring_posts", hiring_post_id)
@@ -102,6 +108,7 @@ async def entrypoint(ctx: JobContext) -> None:
             "max_duration_seconds": template.get("max_duration_minutes", 45) * 60,
             "foundational_ratio": template.get("foundational_ratio", 0.6),
             "job_title": hiring_post.get("title", "") if hiring_post else "",
+            "custom_questions": template.get("custom_questions") or [],
         }
     except Exception:
         logger.exception("Failed to fetch template=%s session=%s", template_id, session_id)
@@ -114,6 +121,7 @@ async def entrypoint(ctx: JobContext) -> None:
         resume_markdown=resume_markdown,
         jd_text=jd_text,
         template_config=template_config,
+        resume_projects=resume_projects,
     )
     logger.info("Starting agent session=%s max_questions=%d", session_id, controller.max_questions)
     await session.start(agent=agent, room=ctx.room)
@@ -152,9 +160,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # Conversation state
     # ------------------------------------------------------------------
     _last_agent_text: list[str] = [""]
-    # Stores only the pure question text for repeats — never includes the
-    # LLM's acknowledgement prefix ("Great answer! Now...").
+
+    # The pure question text currently being answered.
+    # Set explicitly by _do_advance() and _trigger_q1() — never overwritten
+    # by conversation_item_added so it is always the clean question text.
+    # Used for: timer guard, database question_text, repeat delivery.
     _repeatable_question: list[str] = [""]
+
     _qa_number: list[int] = [0]
 
     _interview_phase: list[str] = ["greeting"]   # "greeting" | "interview"
@@ -162,13 +174,21 @@ async def entrypoint(ctx: JobContext) -> None:
     _repeat_used: list[bool] = [False]
     _awaiting_close: list[bool] = [False]
 
+    # Guards against Q1 being triggered twice if two user items arrive
+    # before the phase flag flips to "interview".
+    _q1_triggered: list[bool] = [False]
+
     # Accumulates Deepgram final-transcript segments across multiple STT events.
     # Consumed and cleared when _advance_question() fires.
     _current_answer_parts: list[list[str]] = [[]]
 
     _agent_state: list[str] = ["initializing"]
     _user_state: list[str] = ["listening"]
+
+    # Topic and type of the question *currently being answered*.
+    # Set when a question is generated; consumed when that question is advanced.
     _current_question_topic: list[str] = ["general"]
+    _current_question_type: list[str] = ["foundational"]
 
     # ------------------------------------------------------------------
     # Timer state
@@ -183,16 +203,15 @@ async def entrypoint(ctx: JobContext) -> None:
     _SPEAK_GRACE_SECONDS = 3.0
     _grace_task: list[asyncio.Task | None] = [None]
 
-    # Silence thresholds per word-count tier (used after grace period).
-    # If word count < 6: resume timer (not enough to be a real answer).
-    # Otherwise: wait tier-appropriate silence then advance as answered=True.
-    _SILENCE_TIERS = [
-        (11, float("inf"), None),   # 0–10 words → resume timer
-        (16, 11,           4.0),    # 11–15 words → 4 s silence
-        (31, 16,           3.0),    # 16–30 words → 3 s silence
-        (float("inf"), 31, 2.0),    # 31+ words  → 2 s silence
+    # Silence thresholds by word count.  Entries are (min_words, silence_secs).
+    # Listed highest-first so the first match wins.
+    # None means "too short — resume the no-response timer instead of advancing".
+    _SILENCE_TIERS: list[tuple[int, float | None]] = [
+        (31, 2.0),   # 31+ words  → 2 s silence then advance
+        (16, 3.0),   # 16–30 words → 3 s silence
+        (11, 4.0),   # 11–15 words → 4 s silence
+        (0,  None),  # 0–10 words  → resume timer (not a real answer yet)
     ]
-    
 
     _REPEAT_PHRASES = (
         "repeat", "say that again", "say it again", "come again",
@@ -205,14 +224,10 @@ async def entrypoint(ctx: JobContext) -> None:
 
     def _silence_needed(word_count: int) -> float | None:
         """Seconds of silence needed to advance, or None to resume timer."""
-        if word_count <= 10:
-            return None
-        elif word_count <= 15:
-            return 4.0
-        elif word_count <= 30:
-            return 3.0
-        else:
-            return 2.0
+        for min_words, silence in _SILENCE_TIERS:
+            if word_count >= min_words:
+                return silence
+        return None
 
     def _is_repeat_request(text: str) -> bool:
         return len(text.split()) <= 15 and any(p in text.lower() for p in _REPEAT_PHRASES)
@@ -241,18 +256,15 @@ async def entrypoint(ctx: JobContext) -> None:
         Only fires when:
         - In interview phase
         - Not closing
-        - A question is active (_last_agent_text set)
+        - A question is active (_repeatable_question set)
         - No timer already running
-        
-        Args:
-            event_type: "timer_started" for new question, "timer_resumed" for resume after pause
         """
         if (
             _interview_phase[0] != "interview"
             or _awaiting_close[0]
             or controller.ended
             or _no_response_task[0] is not None
-            or not _last_agent_text[0]
+            or not _repeatable_question[0]
         ):
             return
 
@@ -271,8 +283,6 @@ async def entrypoint(ctx: JobContext) -> None:
             _no_response_task[0] = None
             _timer_seg_start[0] = None
             logger.warning("No-response timer expired session=%s", session_id)
-            # If candidate said anything at all treat as answered so we don't
-            # rudely say "I didn't hear a response" when they did speak.
             has_words = _get_word_count() > 0
             await _advance_question(answered=has_words)
 
@@ -295,7 +305,8 @@ async def entrypoint(ctx: JobContext) -> None:
             _advancing[0] = False
 
     async def _do_advance(answered: bool) -> None:
-        if not _last_agent_text[0]:
+        # No active question — nothing to advance.
+        if not _repeatable_question[0]:
             logger.debug("No active question — skipping advance session=%s", session_id)
             return
 
@@ -310,7 +321,12 @@ async def entrypoint(ctx: JobContext) -> None:
         _qa_number[0] += 1
         controller.question_count = _qa_number[0]
         current_q = _qa_number[0]
-        question_text = _last_agent_text[0]
+
+        # Snapshot and clear the active question state atomically.
+        question_text = _repeatable_question[0]
+        question_type = _current_question_type[0] or "foundational"
+        _repeatable_question[0] = ""
+        _current_question_type[0] = ""
         _last_agent_text[0] = ""
 
         logger.info(
@@ -318,13 +334,13 @@ async def entrypoint(ctx: JobContext) -> None:
             current_q, controller.max_questions, answered, len(answer_text.split()), session_id,
         )
 
-        # Persist Q&A
+        # Persist Q&A — use the clean question text, not raw agent speech.
         if question_text:
             try:
                 insert_record("interview_qa", {
                     "session_id": session_id,
                     "question_number": current_q,
-                    "question_type": "foundational",
+                    "question_type": question_type,
                     "question_text": question_text,
                     "answer_text": answer_text,
                 })
@@ -336,12 +352,14 @@ async def entrypoint(ctx: JobContext) -> None:
                     "question": question_text,
                     "answer": answer_text,
                     "topic": _current_question_topic[0],
+                    "question_type": question_type,
                 })
             else:
                 controller.question_gen.conversation_history.append({
                     "question": question_text,
                     "answer": "[no answer — candidate did not respond]",
                     "topic": _current_question_topic[0],
+                    "question_type": question_type,
                 })
 
         # Last question → close
@@ -360,8 +378,6 @@ async def entrypoint(ctx: JobContext) -> None:
             # Candidate was completely silent.
             # Bypass the LLM entirely — fetch the next question directly from
             # the question generator and speak it as a single hardcoded line.
-            # This prevents the LLM from generating a spurious acknowledgement
-            # like "Fantastic explanation!" when the candidate said nothing.
             # ----------------------------------------------------------------
             try:
                 q_data = await asyncio.get_event_loop().run_in_executor(
@@ -371,22 +387,30 @@ async def entrypoint(ctx: JobContext) -> None:
                     ),
                 )
                 next_q_text = q_data.get("question_text", "").strip()
-                _current_question_topic[0] = q_data.get("topic", "general")
+                next_q_topic = q_data.get("topic", "general")
+                next_q_type = q_data.get("question_type", "foundational")
             except Exception:
                 logger.exception("Failed to generate Q#%d session=%s", next_q, session_id)
                 next_q_text = ""
+                next_q_topic = "general"
+                next_q_type = "foundational"
+
+            # Fall back to a generic question so the interview doesn't freeze.
+            if not next_q_text:
+                next_q_text = _FALLBACK_QUESTION
+                logger.warning("Using fallback question for Q#%d session=%s", next_q, session_id)
+
+            # Set the active question state BEFORE session.say() so
+            # conversation_item_added cannot overwrite these values.
+            _repeatable_question[0] = next_q_text
+            _current_question_topic[0] = next_q_topic
+            _current_question_type[0] = next_q_type
 
             move_on = "I didn't hear a response, so let's move on."
-            full_text = f"{move_on} {next_q_text}" if next_q_text else move_on
-            await session.say(full_text, allow_interruptions=False)
+            await session.say(f"{move_on} {next_q_text}", allow_interruptions=False)
 
-            # Set the active question text so the timer guard works on the
-            # next agent_state_changed → listening event.
-            _last_agent_text[0] = next_q_text if next_q_text else ""
-            if next_q_text:
-                _repeatable_question[0] = next_q_text
             logger.info("Skipped Q#%d, spoke Q#%d directly session=%s", current_q, next_q, session_id)
-            # Timer will be armed by _on_agent_state_changed when agent → listening
+            # Timer will be armed by _on_agent_state_changed when agent → listening.
             return
 
         # ----------------------------------------------------------------
@@ -395,6 +419,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # ----------------------------------------------------------------
         next_q_text = ""
         next_q_topic = "general"
+        next_q_type = "foundational"
         try:
             q_data = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -404,12 +429,15 @@ async def entrypoint(ctx: JobContext) -> None:
             )
             next_q_text = q_data.get("question_text", "").strip()
             next_q_topic = q_data.get("topic", "general")
+            next_q_type = q_data.get("question_type", "foundational")
         except Exception:
             logger.exception("Failed to pre-generate Q#%d session=%s", next_q, session_id)
 
+        # Set the active question state BEFORE generate_reply() so the timer
+        # guard sees a question the moment the agent finishes speaking.
         _current_question_topic[0] = next_q_topic
-        if next_q_text:
-            _repeatable_question[0] = next_q_text
+        _current_question_type[0] = next_q_type
+        _repeatable_question[0] = next_q_text
 
         try:
             controller.explicit_generate_count += 1
@@ -437,14 +465,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # Close interview
     # ------------------------------------------------------------------
     async def _close_interview() -> None:
-        if controller.ended:
+        # Double-guard: _awaiting_close prevents the duration watchdog from
+        # entering while _close_interview is already running.
+        if controller.ended or _awaiting_close[0]:
             return
         _awaiting_close[0] = True
         controller.closing = True
         _cancel_no_response_task("closing")
         _cancel_grace_task()
 
-        # Tell frontend immediately: clear timer, show wrapping-up state.
         await _publish_data(json.dumps({"type": "interview_closing"}).encode())
 
         try:
@@ -458,7 +487,6 @@ async def entrypoint(ctx: JobContext) -> None:
             allow_interruptions=False,
         )
 
-        # Give TTS time to fully play before disconnecting.
         await asyncio.sleep(3.0)
         await _publish_data(json.dumps({"type": "session_end"}).encode())
         controller.finish()
@@ -472,13 +500,13 @@ async def entrypoint(ctx: JobContext) -> None:
         _agent_state[0] = event.new_state
 
         if event.new_state == "speaking":
-            # Cancel timer while agent is speaking — candidate can't answer yet.
+            # Cancel both timer and grace — candidate can't answer while agent speaks.
             _cancel_no_response_task("agent_speaking")
+            _cancel_grace_task()
             if _interview_phase[0] == "interview" and not _awaiting_close[0]:
                 asyncio.create_task(_publish_data(
                     json.dumps({"type": "agent_speaking"}).encode()
                 ))
-            # Send Q1 progress on first agent speech in interview phase.
             if _interview_phase[0] == "interview" and not _awaiting_close[0]:
                 if _last_progress_sent[0] == 0:
                     _last_progress_sent[0] = 1
@@ -488,15 +516,14 @@ async def entrypoint(ctx: JobContext) -> None:
                     logger.info("question_progress current=1 session=%s", session_id)
 
         elif event.new_state == "listening":
-            # Agent finished speaking and is now listening for the candidate.
-            # Arm the timer if a question is active and no timer is running.
-            # The _last_agent_text guard prevents arming during the brief
-            # "listening" flash between generate_reply() and the next question.
+            # Agent finished speaking. Arm the timer if a question is active.
+            # _repeatable_question guard prevents arming when no question is live
+            # (e.g., during the brief window between questions).
             if (
                 _interview_phase[0] == "interview"
                 and not _awaiting_close[0]
                 and not controller.ended
-                and bool(_last_agent_text[0])
+                and bool(_repeatable_question[0])
                 and _no_response_task[0] is None
                 and _grace_task[0] is None
             ):
@@ -512,7 +539,6 @@ async def entrypoint(ctx: JobContext) -> None:
         logger.debug("User state %s→%s session=%s", old_state, event.new_state, session_id)
 
         if event.new_state == "speaking":
-            # User started speaking — pause the timer immediately.
             _cancel_grace_task()
             if _timer_seg_start[0] is not None:
                 elapsed = time.monotonic() - _timer_seg_start[0]
@@ -527,7 +553,6 @@ async def entrypoint(ctx: JobContext) -> None:
             ))
 
         elif old_state == "speaking" and event.new_state != "speaking":
-            # User stopped speaking — start grace period.
             if (
                 _interview_phase[0] != "interview"
                 or _awaiting_close[0]
@@ -545,9 +570,6 @@ async def entrypoint(ctx: JobContext) -> None:
             ))
 
             async def _grace_then_decide() -> None:
-                # Phase 1: initial grace period (3 s).
-                # If user speaks again, this task is cancelled and the whole
-                # process restarts from user_state_changed → speaking.
                 try:
                     await asyncio.sleep(_SPEAK_GRACE_SECONDS)
                 except asyncio.CancelledError:
@@ -567,8 +589,6 @@ async def entrypoint(ctx: JobContext) -> None:
                 extra_silence = _silence_needed(word_count)
 
                 if extra_silence is None:
-                    # Too few words — candidate hasn't really answered.
-                    # Resume the no-response countdown from remaining time.
                     logger.debug(
                         "Grace done, %d words ≤ 10 — resuming timer at %.1fs session=%s",
                         word_count, _timer_remaining[0], session_id,
@@ -576,8 +596,6 @@ async def entrypoint(ctx: JobContext) -> None:
                     _arm_timer("timer_resumed")
                     return
 
-                # Phase 2: tier-appropriate confirmation silence.
-                # Notify frontend to keep timer hidden (still in grace).
                 logger.debug(
                     "Grace done, %d words — waiting %.1fs confirmation silence session=%s",
                     word_count, extra_silence, session_id,
@@ -595,7 +613,6 @@ async def entrypoint(ctx: JobContext) -> None:
                 except asyncio.CancelledError:
                     return
 
-                # Final guard before advancing.
                 if (
                     _interview_phase[0] != "interview"
                     or _awaiting_close[0]
@@ -640,13 +657,18 @@ async def entrypoint(ctx: JobContext) -> None:
             return
 
         if role == "assistant":
+            # Only track agent speech once we're in the interview phase.
+            # This prevents the greeting message from leaking into _last_agent_text
+            # or _repeatable_question.
+            if _interview_phase[0] != "interview":
+                return
             content = _extract_text(item)
             if content:
                 _last_agent_text[0] = content
-                # For Q1 only (before any _do_advance has run), treat the full
-                # agent text as the repeatable question. After Q1, _do_advance
-                # always sets _repeatable_question to the pre-generated question
-                # text — never let a later LLM utterance overwrite it.
+                # For Q1 only: if _repeatable_question wasn't pre-set by _trigger_q1
+                # (e.g., pre-generation failed), fall back to the raw LLM utterance.
+                # After Q1, _do_advance always sets _repeatable_question before any
+                # agent speech, so this guard never fires for Q2+.
                 if not _repeatable_question[0] and _qa_number[0] == 0:
                     _repeatable_question[0] = content
 
@@ -659,37 +681,72 @@ async def entrypoint(ctx: JobContext) -> None:
                          _interview_phase[0], content[:80] if content else "", session_id)
 
             if _interview_phase[0] == "greeting":
+                # Guard: only trigger Q1 once even if multiple user items arrive.
+                if _q1_triggered[0]:
+                    return
+                _q1_triggered[0] = True
                 _cancel_no_response_task()
                 _interview_phase[0] = "interview"
                 _last_agent_text[0] = ""
                 _repeatable_question[0] = ""
                 logger.info("→ interview phase session=%s", session_id)
-                controller.explicit_generate_count += 1
-                try:
-                    session.generate_reply(
-                        instructions="Start the interview. Ask the first question now.",
-                        allow_interruptions=False,
-                    )
-                except Exception:
-                    logger.exception("Failed to trigger Q1 session=%s", session_id)
+
+                async def _trigger_q1() -> None:
+                    """Pre-generate Q1 so it has a real topic, then hand it to the LLM."""
+                    q1_text = ""
+                    q1_topic = "general"
+                    q1_type = "foundational"
+                    try:
+                        q1_data = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: controller.question_gen.generate_next_question(
+                                controller.foundational_ratio
+                            ),
+                        )
+                        q1_text = q1_data.get("question_text", "").strip()
+                        q1_topic = q1_data.get("topic", "general")
+                        q1_type = q1_data.get("question_type", "foundational")
+                    except Exception:
+                        logger.exception("Failed to pre-generate Q1 session=%s", session_id)
+
+                    if not q1_text:
+                        q1_text = _FALLBACK_QUESTION
+                        logger.warning("Using fallback for Q1 session=%s", session_id)
+
+                    # Set active question state BEFORE generate_reply so the timer
+                    # guard and repeat handler both have the correct question text.
+                    _repeatable_question[0] = q1_text
+                    _current_question_topic[0] = q1_topic
+                    _current_question_type[0] = q1_type
+
+                    controller.explicit_generate_count += 1
+                    try:
+                        session.generate_reply(
+                            instructions=f"Begin the interview warmly. Ask this exact question naturally: {q1_text}",
+                            allow_interruptions=False,
+                        )
+                    except Exception:
+                        logger.exception("Failed to trigger Q1 session=%s", session_id)
+
+                asyncio.create_task(_trigger_q1())
                 return
 
             if _interview_phase[0] != "interview" or _awaiting_close[0]:
                 return
 
-            if not _last_agent_text[0]:
+            if not _repeatable_question[0]:
                 logger.debug("No active question — ignoring user item session=%s", session_id)
                 return
 
             # Repeat request
             if content and _is_repeat_request(content):
+                question_to_repeat = _repeatable_question[0] or _last_agent_text[0]
+                if not question_to_repeat:
+                    logger.warning("Repeat requested but no question text available session=%s", session_id)
+                    return
+
                 if not _repeat_used[0]:
                     _repeat_used[0] = True
-                    # Use _repeatable_question (pure question text only) so the
-                    # repeat never includes the LLM's acknowledgement of the
-                    # previous answer. Fall back to _last_agent_text for Q1
-                    # where no separate question text has been stored yet.
-                    question_to_repeat = _repeatable_question[0] or _last_agent_text[0]
                     logger.info("Repeat (first) Q#%d session=%s", _qa_number[0] + 1, session_id)
 
                     async def _do_repeat() -> None:
@@ -714,10 +771,6 @@ async def entrypoint(ctx: JobContext) -> None:
                     asyncio.create_task(_do_repeat_blocked())
                 return
 
-            # Normal user turn committed by Deepgram.
-            # Do NOT advance here — the grace/silence logic in user_state_changed
-            # is the sole advancement path for answered questions.
-            # This handler only tracks the transcript for repeat detection.
             logger.debug(
                 "User turn committed Q#%d — grace/silence logic will advance session=%s",
                 _qa_number[0] + 1, session_id,
@@ -727,9 +780,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # Data channel: tab-switch
     # ------------------------------------------------------------------
     @ctx.room.on("data_received")
-    def _on_data_received(packet, *args, **kwargs) -> None:
-        # Newer livekit-rtc fires with a DataPacket object; older versions pass
-        # raw bytes directly.  Handle both so tab_switch is never silently lost.
+    def _on_data_received(packet) -> None:
         try:
             raw: bytes = packet.data if hasattr(packet, "data") else bytes(packet)
         except Exception as e:
@@ -794,19 +845,24 @@ async def entrypoint(ctx: JobContext) -> None:
     # ------------------------------------------------------------------
     async def _duration_watchdog() -> None:
         await asyncio.sleep(controller.max_duration_seconds)
-        if not controller.ended:
-            logger.info("Duration limit reached session=%s", session_id)
-            _cancel_no_response_task()
-            _cancel_grace_task()
-            await session.say(
-                "We've reached the end of our allotted time. Thank you for your responses. "
-                "The interview is now complete. We will be in touch soon. Goodbye!",
-                allow_interruptions=False,
-            )
-            await asyncio.sleep(3.0)
-            await _publish_data(json.dumps({"type": "session_end"}).encode())
-            controller.finish()
-            shutdown_event.set()
+        # _awaiting_close check prevents a race with _close_interview() running
+        # on the last question at the same moment the duration limit fires.
+        if controller.ended or _awaiting_close[0]:
+            return
+        logger.info("Duration limit reached session=%s", session_id)
+        _awaiting_close[0] = True
+        controller.closing = True
+        _cancel_no_response_task()
+        _cancel_grace_task()
+        await session.say(
+            "We've reached the end of our allotted time. Thank you for your responses. "
+            "The interview is now complete. We will be in touch soon. Goodbye!",
+            allow_interruptions=False,
+        )
+        await asyncio.sleep(3.0)
+        await _publish_data(json.dumps({"type": "session_end"}).encode())
+        controller.finish()
+        shutdown_event.set()
 
     asyncio.create_task(_duration_watchdog())
 

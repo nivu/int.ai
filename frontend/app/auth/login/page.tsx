@@ -42,8 +42,8 @@ function LoginForm() {
       setLoading(false);
       return;
     }
-    console.log("pushing to /dashboard");
-    router.push("/dashboard");
+    console.log("redirecting to /dashboard");
+    window.location.href = "/dashboard";
   }
 
   async function handleSendOtp(e: React.FormEvent) {

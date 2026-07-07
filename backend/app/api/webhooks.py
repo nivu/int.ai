@@ -5,6 +5,9 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from app.services.supabase import get_record
+from app.tasks.screen_resume import screen_resume_task
+
 logger = logging.getLogger("int.ai")
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -22,14 +25,7 @@ class WebhookPayload:
 
 @router.post("/application-created")
 async def application_created(payload: dict[str, Any]) -> dict[str, str]:
-    """Handle Supabase webhook fired when a new application row is inserted.
-
-    Payload ``record`` is expected to contain:
-    - id (application id)
-    - hiring_post_id
-    - candidate_id
-    - resume_url
-    """
+    """Handle Supabase webhook fired when a new application row is inserted."""
     webhook = WebhookPayload(payload)
     record = webhook.record
 
@@ -42,39 +38,34 @@ async def application_created(payload: dict[str, Any]) -> dict[str, str]:
         hiring_post_id,
     )
 
-    # Idempotency: skip if the application has already moved past 'applied'
-    # (guards against duplicate trigger fires).
-    try:
-        from app.services.supabase import get_record
+    if not application_id or not hiring_post_id:
+        logger.error("Webhook payload missing application_id or hiring_post_id: %s", payload)
+        return {"status": "error", "reason": "missing fields"}
 
+    # Idempotency: skip if the application has already moved past 'applied'.
+    try:
         app_row = get_record("applications", application_id)
-        if app_row.get("status") != "applied":
+        current_status = app_row.get("status") if app_row else None
+        if current_status != "applied":
             logger.info(
                 "Skipping screening dispatch — application already processed: %s (status=%s)",
                 application_id,
-                app_row.get("status"),
+                current_status,
             )
             return {"status": "skipped"}
     except Exception:
-        logger.warning(
-            "Could not verify application status for idempotency check: %s — proceeding",
+        logger.exception(
+            "Failed to fetch application %s for idempotency check — aborting dispatch",
             application_id,
         )
+        return {"status": "error", "reason": "could not verify application status"}
 
-    # Trigger async resume screening task if the module is available
     try:
-        from app.tasks.screen_resume import screen_resume_task
-
         screen_resume_task.delay(application_id, hiring_post_id)
-        logger.info(
-            "Dispatched screen_resume_task for application_id=%s", application_id
-        )
-    except ImportError:
-        logger.warning(
-            "screen_resume task module not yet available — skipping screening dispatch "
-            "for application_id=%s",
-            application_id,
-        )
+        logger.info("Dispatched screen_resume_task for application_id=%s", application_id)
+    except Exception:
+        logger.exception("Failed to dispatch screen_resume_task for application_id=%s", application_id)
+        return {"status": "error", "reason": "task dispatch failed"}
 
     return {"status": "received"}
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useOrgId } from "@/components/admin/org-context";
 import { backendFetch } from "@/lib/api/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export default function SettingsPage() {
 
 function TeamTab() {
   const supabase = createClient();
+  const orgId = useOrgId();
 
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,20 +115,26 @@ function TeamTab() {
   // Fetch members
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
+      let query = supabase
         .from("team_members")
         .select("id, email, full_name, role, status")
         .order("created_at", { ascending: true });
+
+      if (orgId) {
+        query = query.eq("org_id", orgId);
+      }
+
+      const { data } = await query;
       setMembers((data as TeamMember[]) ?? []);
       setLoading(false);
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   // Invite member
   const handleInvite = useCallback(async () => {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail.trim() || !orgId) return;
     setInviting(true);
     try {
       const { data: inserted, error } = await supabase
@@ -135,6 +143,7 @@ function TeamTab() {
           email: inviteEmail.trim(),
           role: inviteRole,
           status: "invited",
+          org_id: orgId,
         })
         .select()
         .single();
@@ -168,7 +177,7 @@ function TeamTab() {
     } finally {
       setInviting(false);
     }
-  }, [inviteEmail, inviteRole, supabase]);
+  }, [inviteEmail, inviteRole, supabase, orgId]);
 
   // Change role
   const handleRoleChange = useCallback(
@@ -413,6 +422,7 @@ function TeamTab() {
 
 function DefaultsTab() {
   const supabase = createClient();
+  const orgId = useOrgId();
 
   const [weights, setWeights] = useState({ skill: 0.4, experience: 0.35, culture: 0.25 });
   const [threshold, setThreshold] = useState(70);
@@ -424,24 +434,13 @@ function DefaultsTab() {
   // Fetch current settings + templates
   useEffect(() => {
     async function load() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("org_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!profile?.org_id) return;
+      if (!orgId) return;
 
       // Fetch org settings
       const { data: org } = await supabase
         .from("organizations")
         .select("settings")
-        .eq("id", profile.org_id)
+        .eq("id", orgId)
         .single();
 
       if (org?.settings) {
@@ -455,14 +454,14 @@ function DefaultsTab() {
       const { data: tmpl } = await supabase
         .from("interview_templates")
         .select("id, name")
-        .eq("org_id", profile.org_id)
+        .eq("org_id", orgId)
         .order("name");
 
       setTemplates((tmpl as InterviewTemplate[]) ?? []);
     }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   // Redistribute weights to sum to 1.0 when one slider changes
   function handleWeightChange(
@@ -493,21 +492,9 @@ function DefaultsTab() {
 
   // Save
   const handleSave = useCallback(async () => {
+    if (!orgId) return;
     setSaving(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("org_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!profile?.org_id) return;
-
       const settings: OrgSettings = {
         scoring_weights: {
           skill: Math.round(weights.skill * 1000) / 1000,
@@ -521,7 +508,7 @@ function DefaultsTab() {
       const { error } = await supabase
         .from("organizations")
         .update({ settings })
-        .eq("id", profile.org_id);
+        .eq("id", orgId);
 
       if (error) throw error;
       setSaved(true);
@@ -530,7 +517,7 @@ function DefaultsTab() {
     } finally {
       setSaving(false);
     }
-  }, [supabase, weights, threshold, templateId]);
+  }, [supabase, weights, threshold, templateId, orgId]);
 
   return (
     <div className="mt-4 space-y-6">
