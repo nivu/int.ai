@@ -522,6 +522,9 @@ export default function CandidateTable({
 
     setBulkLoading(true);
     const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
     try {
       if (action === "send_interview") {
@@ -591,10 +594,12 @@ export default function CandidateTable({
                     interview_url: `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/interview`,
                   },
                 }),
+                token: session?.access_token,
               });
             }
-          } catch {
-            // Email failure shouldn't block the action
+          } catch (emailError) {
+            // Status update already succeeded; don't block on email failure, but don't hide it either
+            console.error("Failed to send interview invitation email for application", appId, emailError);
           }
         }
       } else if (action === "reject") {
@@ -625,10 +630,12 @@ export default function CandidateTable({
                     job_title: app.hiring_post?.title ?? "the position",
                   },
                 }),
+                token: session?.access_token,
               });
             }
-          } catch {
-            // Email failure shouldn't block the action
+          } catch (emailError) {
+            // Status update already succeeded; don't block on email failure, but don't hide it either
+            console.error("Failed to send rejection email for application", appId, emailError);
           }
         }
       } else if (action === "shortlist") {
