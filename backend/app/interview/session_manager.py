@@ -15,7 +15,6 @@ from livekit.api import AccessToken, CreateRoomRequest, LiveKitAPI, VideoGrants
 
 from app.config import settings
 from app.services.supabase import get_record, insert_record, update_record
-from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
 
