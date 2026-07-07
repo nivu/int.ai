@@ -178,9 +178,12 @@ function ReScreenButton({
   async function handleClick() {
     setState("loading");
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
       await backendFetch("/api/v1/screening/trigger", {
         method: "POST",
         body: JSON.stringify({ application_id: applicationId, hiring_post_id: hiringPostId }),
+        token: session?.access_token,
       });
       setState("done");
     } catch {

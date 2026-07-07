@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import LogoutButton from "@/components/shared/logout-button";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { AuthErrorHandler } from "@/components/shared/auth-error-handler";
+import { OrgProvider } from "@/components/admin/org-context";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -29,9 +30,10 @@ export default async function AdminLayout({
   }
 
   // Verify the authenticated user is a member of a team with an allowed role
+  // and resolve their org_id for the shared OrgContext
   const { data: teamMember } = await supabase
     .from("team_members")
-    .select("role")
+    .select("role, org_id")
     .eq("user_id", user.id)
     .in("role", ["admin", "recruiter", "hiring_manager"])
     .limit(1)
@@ -41,8 +43,10 @@ export default async function AdminLayout({
     redirect("/auth/login");
   }
 
+  const orgId: string | null = teamMember.org_id ?? null;
+
   return (
-    <>
+    <OrgProvider orgId={orgId}>
     <AuthErrorHandler />
     <div className="flex h-screen">
       <aside className="w-64 border-r bg-muted/30 p-6 flex flex-col">
@@ -71,6 +75,6 @@ export default async function AdminLayout({
       </aside>
       <main className="flex-1 overflow-y-auto p-8">{children}</main>
     </div>
-    </>
+    </OrgProvider>
   );
 }

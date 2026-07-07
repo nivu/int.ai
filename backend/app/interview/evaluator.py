@@ -175,6 +175,14 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
     # ── Per-question scoring ────────────────────────────────────────────────
     all_scores: list[dict[str, Any]] = []
     for qa in qa_items:
+        # Skip rows already scored (idempotency for retries)
+        if qa.get("technical_accuracy") is not None:
+            existing = {dim: qa[dim] for dim in DIMENSIONS}
+            existing["per_dimension_reasoning"] = qa.get("per_dimension_reasoning") or {}
+            existing["score_rationale"] = qa.get("score_rationale") or ""
+            all_scores.append(existing)
+            continue
+
         answer = (qa.get("answer_text") or "").strip()
         if not answer:
             # Skipped — score 0, no API call

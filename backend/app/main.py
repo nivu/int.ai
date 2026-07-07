@@ -27,7 +27,7 @@ _celery_proc: subprocess.Popen | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _celery_proc
-    
+
     _celery_proc = subprocess.Popen(
         [sys.executable, "-m", "celery", "-A", "app.worker", "worker", "--loglevel=info", "--concurrency=2"],
         stdout=None,  # inherit so logs appear in the same terminal
@@ -108,8 +108,7 @@ async def health_check() -> dict[str, str]:
 # Mount API routers under /api/v1
 # ---------------------------------------------------------------------------
 def _mount_routers() -> None:
-    """Import and mount API routers.  Routers that haven't been created yet
-    are silently skipped so the app can start during incremental development."""
+    import importlib
 
     router_modules = [
         ("app.api.screening", "router"),
@@ -123,16 +122,10 @@ def _mount_routers() -> None:
     ]
 
     for module_path, attr_name in router_modules:
-        try:
-            import importlib
-
-            module = importlib.import_module(module_path)
-            router = getattr(module, attr_name)
-            app.include_router(router, prefix="/api/v1")
-        except (ImportError, AttributeError) as exc:
-            logger.warning(
-                'Router "%s" not yet available, skipping: %s', module_path, exc
-            )
+        module = importlib.import_module(module_path)
+        router = getattr(module, attr_name)
+        app.include_router(router, prefix="/api/v1")
+        logger.info("Mounted router: %s", module_path)
 
 
 _mount_routers()

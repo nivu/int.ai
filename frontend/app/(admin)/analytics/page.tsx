@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useOrgId } from "@/components/admin/org-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,6 +108,8 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub?: st
 export default function AnalyticsPage() {
   const supabase = createClient();
 
+  const orgId = useOrgId();
+
   // Filters
   const [jobs, setJobs] = useState<HiringPost[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string>("all");
@@ -137,37 +140,40 @@ export default function AnalyticsPage() {
   // ---- Fetch jobs for selector ----
   useEffect(() => {
     async function loadJobs() {
-      const { data } = await supabase
+      let query = supabase
         .from("hiring_posts")
         .select("id, title")
         .order("created_at", { ascending: false });
+
+      if (orgId) {
+        query = query.eq("org_id", orgId);
+      }
+
+      const { data } = await query;
       setJobs((data as HiringPost[]) ?? []);
     }
     loadJobs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgId]);
 
   // ---- Fetch analytics data ----
   const fetchAnalytics = useCallback(async () => {
     setLoading(true);
 
     try {
-      let appsQuery = supabase.from("applications").select(
-        "id, status, overall_score, skill_match_score, experience_match_score, culture_match_score, decision, created_at, screening_completed_at, interview_invited_at, hiring_post_id"
-      );
-
+      // Build app query scoped to org's hiring posts
+      let postIds: string[] = [];
       if (selectedJobId !== "all") {
-        appsQuery = appsQuery.eq("hiring_post_id", selectedJobId);
-      }
-      if (startDate) {
-        appsQuery = appsQuery.gte("created_at", startDate);
-      }
-      if (endDate) {
-        appsQuery = appsQuery.lte("created_at", `${endDate}T23:59:59`);
+        postIds = [selectedJobId];
+      } else if (orgId) {
+        const { data: orgPosts } = await supabase
+          .from("hiring_posts")
+          .select("id")
+          .eq("org_id", orgId);
+        postIds = (orgPosts ?? []).map((p: { id: string }) => p.id);
       }
 
-      const { data: applications } = await appsQuery;
-      const apps = (applications ?? []) as Array<{
+      let apps: Array<{
         id: string;
         status: string;
         overall_score: number | null;
@@ -179,7 +185,23 @@ export default function AnalyticsPage() {
         screening_completed_at: string | null;
         interview_invited_at: string | null;
         hiring_post_id: string;
-      }>;
+      }> = [];
+
+      if (postIds.length > 0) {
+        let appsQuery = supabase.from("applications").select(
+          "id, status, overall_score, skill_match_score, experience_match_score, culture_match_score, decision, created_at, screening_completed_at, interview_invited_at, hiring_post_id"
+        ).in("hiring_post_id", postIds);
+
+        if (startDate) {
+          appsQuery = appsQuery.gte("created_at", startDate);
+        }
+        if (endDate) {
+          appsQuery = appsQuery.lte("created_at", `${endDate}T23:59:59`);
+        }
+
+        const { data: applications } = await appsQuery;
+        apps = (applications ?? []) as typeof apps;
+      }
 
       // ---- KPIs ----
       const totalApps = apps.length;
@@ -329,7 +351,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, selectedJobId, startDate, endDate]);
+  }, [supabase, selectedJobId, startDate, endDate, orgId]);
 
   useEffect(() => {
     fetchAnalytics();

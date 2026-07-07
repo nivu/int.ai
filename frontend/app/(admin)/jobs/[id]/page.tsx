@@ -25,14 +25,14 @@ export default async function JobDetailPage({
   }
 
   // Fetch linked template settings
-  let templateSettings: { max_questions: number; max_duration_minutes: number } | null = null;
+  let templateSettings: { max_questions: number; max_duration_minutes: number; custom_questions: string[] } | null = null;
   if (post.interview_template_id) {
     const { data: tmpl } = await supabase
       .from("interview_templates")
-      .select("max_questions, max_duration_minutes")
+      .select("max_questions, max_duration_minutes, custom_questions")
       .eq("id", post.interview_template_id)
       .single();
-    templateSettings = tmpl ?? null;
+    templateSettings = tmpl ? { ...tmpl, custom_questions: tmpl.custom_questions ?? [] } : null;
   }
 
   // Application count

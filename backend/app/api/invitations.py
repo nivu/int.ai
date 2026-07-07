@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from app.config import settings
@@ -26,8 +26,13 @@ class SendInvitationResponse(BaseModel):
 
 
 @router.post("/send", response_model=SendInvitationResponse)
-async def send_invitation(body: SendInvitationRequest) -> SendInvitationResponse:
+async def send_invitation(
+    body: SendInvitationRequest,
+    authorization: str = Header(...),
+) -> SendInvitationResponse:
     """Send an invitation email to a new team member."""
+    from app.api.auth import _resolve_admin_org
+    _resolve_admin_org(authorization)
     try:
         message_id = email_service.send_team_invitation(
             to_email=body.email,

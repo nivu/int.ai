@@ -26,18 +26,18 @@ sub-300ms STT latency.
 audio buffering, and pacing out of the box. Custom logic (dynamic question
 generation, evaluation) plugs in via pipeline processors.
 
-### Decision: Claude Sonnet for interview LLM
+### Decision: GPT-4o-mini for interview LLM
 
-**Rationale**: Best latency-to-quality ratio for conversational follow-ups.
-Streaming tokens → TTS minimizes perceived latency. Abstracted behind a
-service interface per constitution (swappable to GPT-4o).
+**Rationale**: Fast first-token latency for conversational follow-ups at
+significantly lower cost than larger models. Cost-effective for high-volume
+interviews. Streaming tokens → TTS minimizes perceived latency.
 
 ### Latency Budget (< 2 seconds target)
 
 | Stage | Budget |
 |-------|--------|
 | Deepgram STT (streaming final) | 300-500ms |
-| LLM first token (Claude Sonnet) | 400-600ms |
+| LLM first token (GPT-4o-mini) | 400-600ms |
 | TTS first audio (Deepgram) | 200-400ms |
 | Network overhead | 100-200ms |
 | **Total** | **1.0-1.7s** |
@@ -69,8 +69,8 @@ Store recording URL + transcript in Supabase.
 
 - LiveKit Cloud: ~$0.03-0.09 per 30-min session
 - Deepgram STT + TTS: ~$0.30-0.50 per session
-- Claude Sonnet tokens: ~$0.50-1.00 per session
-- **Total per interview: ~₹85-120 ($1.00-1.50)**
+- GPT-4o-mini tokens: ~$0.05-0.10 per session
+- **Total per interview: ~₹30-55 ($0.35-0.65)**
 
 ---
 
@@ -106,7 +106,7 @@ embedding stored alongside candidate data.
 
 ### Decision: JSON mode for LLM extraction
 
-**Rationale**: Claude and GPT-4o support native JSON schema output.
+**Rationale**: GPT-4o-mini supports native JSON schema output.
 Guaranteed valid structure. ~10-20% token savings over prompt engineering
 alone. Function calling adds overhead.
 

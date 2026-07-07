@@ -1,0 +1,2 @@
+-- No-op: this migration was superseded by 016_app_config_table.sql
+-- The ALTER DATABASE approach failed due to missing superuser access on hosted Supabase.

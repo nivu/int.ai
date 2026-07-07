@@ -53,7 +53,7 @@ export async function backendFetch<T>(
       type: body?.type ?? "https://int.ai/errors/unknown",
       title: body?.title ?? fallbackTitle,
       status: response.status, // always use the real HTTP status code
-      detail: body?.detail ?? response.statusText,
+      detail: typeof body?.detail === "string" ? body.detail : response.statusText,
     };
     throw new BackendError(problem);
   }

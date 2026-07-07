@@ -6,7 +6,7 @@ import logging
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from app.config import settings
@@ -108,8 +108,13 @@ async def send_application_confirmation(body: ApplicationConfirmationRequest) ->
 
 
 @router.post("/send", response_model=SendEmailResponse)
-async def send_email(body: SendEmailRequest) -> SendEmailResponse:
+async def send_email(
+    body: SendEmailRequest,
+    authorization: str = Header(...),
+) -> SendEmailResponse:
     """Dispatch a transactional email using a named template."""
+    from app.api.auth import _resolve_admin_org
+    _resolve_admin_org(authorization)
     try:
         data = body.data
         candidate_name: str = data["candidate_name"]
@@ -189,10 +194,15 @@ async def send_email(body: SendEmailRequest) -> SendEmailResponse:
 
 
 @router.post("/bulk-custom", response_model=BulkCustomEmailResponse)
-async def send_bulk_custom_email(body: BulkCustomEmailRequest) -> BulkCustomEmailResponse:
+async def send_bulk_custom_email(
+    body: BulkCustomEmailRequest,
+    authorization: str = Header(...),
+) -> BulkCustomEmailResponse:
     """Send recruiter-authored email content to multiple recipients."""
     import asyncio
-    
+    from app.api.auth import _resolve_admin_org
+    _resolve_admin_org(authorization)
+
     if not body.to:
         raise HTTPException(status_code=422, detail="Recipient list cannot be empty")
     if not body.subject.strip():
