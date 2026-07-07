@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Paperclip, X } from "lucide-react";
 import { backendFetch, BackendError } from "@/lib/api/backend";
+import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -154,7 +155,11 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     setCandidatesLoadError(null);
     setSourceCandidates([]);
     try {
-      const response = await backendFetch<JobCandidatesResponse>(`/api/v1/jobs/${jobId}/candidates`);
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await backendFetch<JobCandidatesResponse>(`/api/v1/jobs/${jobId}/candidates`, {
+        token: session?.access_token,
+      });
       setSourceCandidates(response.items ?? []);
     } catch (error) {
       if (error instanceof BackendError) {
@@ -257,6 +262,8 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     setEmailSendError(null);
     setEmailSendSuccess(null);
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
       const payload: BulkEmailRequest = {
         to: recipients,
         subject: emailSubject.trim(),
@@ -268,6 +275,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
         {
           method: "POST",
           body: JSON.stringify(payload),
+          token: session?.access_token,
         }
       );
       const message =
