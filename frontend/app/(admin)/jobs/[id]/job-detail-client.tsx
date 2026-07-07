@@ -70,7 +70,7 @@ export default function JobDetailClient({
 }: {
   post: HiringPost;
   applicationCount: number;
-  templateSettings: { max_questions: number; max_duration_minutes: number } | null;
+  templateSettings: { max_questions: number; max_duration_minutes: number; custom_questions: string[] } | null;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -123,6 +123,7 @@ export default function JobDetailClient({
           .update({
             max_questions: data.max_questions,
             max_duration_minutes: data.max_duration_minutes,
+            custom_questions: data.custom_questions,
           })
           .eq("id", templateId);
         if (tmplError) throw tmplError;
@@ -143,6 +144,7 @@ export default function JobDetailClient({
                 name: `${data.title} Interview`,
                 max_questions: data.max_questions,
                 max_duration_minutes: data.max_duration_minutes,
+                custom_questions: data.custom_questions,
               })
               .select("id")
               .single();
@@ -239,6 +241,7 @@ export default function JobDetailClient({
     screening_threshold: post.screening_threshold,
     max_questions: templateSettings?.max_questions ?? 10,
     max_duration_minutes: templateSettings?.max_duration_minutes ?? 45,
+    custom_questions: templateSettings?.custom_questions ?? [],
     publish_now: post.status === "published",
     scheduled_publish_at: post.scheduled_publish_at ?? "",
     closes_at: post.closes_at ?? "",

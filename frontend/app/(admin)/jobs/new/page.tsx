@@ -45,6 +45,7 @@ export default function NewJobPage() {
           name: `${data.title} Interview`,
           max_questions: data.max_questions,
           max_duration_minutes: data.max_duration_minutes,
+          custom_questions: data.custom_questions,
         })
         .select("id")
         .single();

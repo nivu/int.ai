@@ -81,6 +81,15 @@ See `.specify/memory/constitution.md` for full principles. Key rules:
 - 001-hiring-automation-platform: AI hiring automation (resume screening + voice interviews)
 
 <!-- MANUAL ADDITIONS START -->
+## Planned Features
+
+### Recruiter Custom Questions
+Recruiters should be able to define a list of custom interview questions when creating or editing a job post. During an AI audio interview, the interviewer agent must ask these recruiter-defined questions as part of the interview, staying within the job post's configured total question limit. The feature needs UI in both the job creation and job editing flows, and backend/agent changes to pull and deliver those questions during a live interview. This should not interfere with or break any existing workflows.
+
+### Resume-Anchored Project Questions
+A subset of the AI interviewer's questions should explicitly reference specific projects and skills from the candidate's resume by name — e.g. "I noticed you worked on X project, can you walk me through the challenges you faced?" — rather than asking generically about past experience. These questions count within the existing total question limit (not on top of it). The structured project data already exists in `resume_data.parsed_projects` (populated during resume screening); no new database migration is needed. Changes are limited to the backend interview agent: fetch `parsed_projects` at interview start, queue them in `QuestionGenerator`, and generate a dedicated anchored LLM question for each project at the appropriate point in the ratio-controlled question flow. No frontend changes, no API changes, no other interview logic should be affected.
+
+
 ## Communication Style
 
 When explaining anything — a bug, a fix, a decision, a concept — always provide two layers:

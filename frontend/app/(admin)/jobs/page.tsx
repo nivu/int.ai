@@ -68,7 +68,7 @@ export default async function JobsPage({
 
   // Fetch user profile to get org_id
   const { data: profile } = await supabase
-    .from("user_profiles")
+    .from("team_members")
     .select("org_id")
     .eq("user_id", user.id)
     .single();

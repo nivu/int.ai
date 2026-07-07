@@ -71,10 +71,11 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         # 4. Create a placeholder resume_data row so score details have somewhere to land.
         #    raw_markdown is set to the extracted text now; the LLM-parsed fields are
         #    filled in later once parse_resume() completes.
-        resume_data_record = insert_record("resume_data", {
-            "application_id": application_id,
-            "raw_markdown": resume_text,
-        })
+        upsert_resp = supabase.table("resume_data").upsert(
+            {"application_id": application_id, "raw_markdown": resume_text},
+            on_conflict="application_id",
+        ).execute()
+        resume_data_record = upsert_resp.data[0]
         resume_data_id = resume_data_record["id"]
 
         # 5. Launch parsing AND scoring in parallel.

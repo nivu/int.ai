@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from openai import OpenAI
 from pydantic import BaseModel
 
+from app.api.auth import _resolve_admin_org
 from app.config import settings
 from app.services.supabase import supabase
 
@@ -119,12 +120,17 @@ async def generate_description(req: GenerateDescriptionRequest) -> GenerateDescr
 
 
 @router.get("/{job_id}/candidates", response_model=JobCandidatesResponse)
-async def get_job_candidates(job_id: str) -> JobCandidatesResponse:
+async def get_job_candidates(
+    job_id: str,
+    authorization: str = Header(...),
+) -> JobCandidatesResponse:
     """Return candidates scoped to a single hiring post."""
+    caller_org = _resolve_admin_org(authorization)
+
     try:
         post_rows = (
             supabase.table("hiring_posts")
-            .select("id,title")
+            .select("id,title,org_id")
             .eq("id", job_id)
             .limit(1)
             .execute()
@@ -132,6 +138,8 @@ async def get_job_candidates(job_id: str) -> JobCandidatesResponse:
         )
         if not post_rows:
             raise HTTPException(status_code=404, detail="Job not found")
+        if post_rows[0].get("org_id") != caller_org:
+            raise HTTPException(status_code=403, detail="Access denied")
         job_title = str(post_rows[0].get("title", ""))
 
         applications = (

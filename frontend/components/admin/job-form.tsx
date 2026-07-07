@@ -21,7 +21,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { X } from "lucide-react";
+import { X, Plus } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +47,7 @@ export interface HiringPostFormData {
   // interview settings
   max_questions: number;
   max_duration_minutes: number;
+  custom_questions: string[];
   // publish settings
   publish_now: boolean;
   scheduled_publish_at: string;
@@ -81,6 +82,7 @@ const defaultFormData: HiringPostFormData = {
   screening_threshold: 70,
   max_questions: 10,
   max_duration_minutes: 45,
+  custom_questions: [],
   publish_now: true,
   scheduled_publish_at: "",
   closes_at: "",
@@ -98,9 +100,11 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
       ...defaultFormData.scoring_weights,
       ...initialData?.scoring_weights,
     },
+    custom_questions: initialData?.custom_questions ?? [],
   });
 
   const [skillInput, setSkillInput] = useState("");
+  const [questionInput, setQuestionInput] = useState("");
 
   // ---- helpers ----
 
@@ -175,6 +179,24 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
     }
   };
 
+
+  const addQuestion = useCallback(() => {
+    const q = questionInput.trim();
+    if (q && !form.custom_questions.includes(q)) {
+      update("custom_questions", [...form.custom_questions, q]);
+    }
+    setQuestionInput("");
+  }, [questionInput, form.custom_questions, update]);
+
+  const removeQuestion = useCallback(
+    (index: number) => {
+      update(
+        "custom_questions",
+        form.custom_questions.filter((_, i) => i !== index),
+      );
+    },
+    [form.custom_questions, update],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,6 +437,65 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
               </p>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ============ Custom Interview Questions ============ */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Custom Interview Questions</CardTitle>
+          <CardDescription>
+            Add specific questions you want the AI interviewer to ask. These will
+            be asked first, within the total question limit above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="e.g. Why do you want to work at our company?"
+              value={questionInput}
+              onChange={(e) => setQuestionInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addQuestion();
+                }
+              }}
+            />
+            <Button type="button" variant="outline" onClick={addQuestion} className="shrink-0">
+              <Plus className="size-4 mr-1" />
+              Add
+            </Button>
+          </div>
+          {form.custom_questions.length > 0 && (
+            <ol className="space-y-2">
+              {form.custom_questions.map((q, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
+                >
+                  <span className="mt-0.5 shrink-0 font-medium text-muted-foreground">
+                    {i + 1}.
+                  </span>
+                  <span className="flex-1">{q}</span>
+                  <button
+                    type="button"
+                    className="mt-0.5 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeQuestion(i)}
+                  >
+                    <X className="size-4" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          {form.custom_questions.length >= form.max_questions && (
+            <p className="text-xs text-destructive">
+              You have added {form.custom_questions.length} custom question(s), which fills all{" "}
+              {form.max_questions} question slot(s). Increase &ldquo;Number of Questions&rdquo; to
+              leave room for AI-generated questions.
+            </p>
+          )}
         </CardContent>
       </Card>
 

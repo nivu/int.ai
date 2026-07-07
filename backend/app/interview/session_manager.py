@@ -15,7 +15,6 @@ from livekit.api import AccessToken, CreateRoomRequest, LiveKitAPI, VideoGrants
 
 from app.config import settings
 from app.services.supabase import get_record, insert_record, update_record
-from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
 
@@ -87,7 +86,18 @@ async def start_session_from_existing(session_id: str) -> dict[str, Any]:
     -------
     dict
         ``{session_id, room_name, candidate_token, expires_at}``
+
+    Raises
+    ------
+    PermissionError
+        If the session is already in_progress or completed/terminated.
     """
+    session = get_record("interview_sessions", session_id)
+    current_status = session.get("status", "")
+    non_startable = {"in_progress", "completed", "terminated_tab_switch", "terminated_abandoned"}
+    if current_status in non_startable:
+        raise PermissionError(f"Session {session_id} is already {current_status}")
+
     room_name = f"interview-{session_id}"
 
     # Create the LiveKit room
@@ -206,16 +216,8 @@ async def reconnect_session(session_id: str, reconnection_token: str) -> dict[st
     identity = f"candidate-{session_id}"
     candidate_token, expires_at = _generate_candidate_token(room_name, identity)
 
-    # Refresh the reconnection window
-    update_record(
-        "interview_sessions",
-        session_id,
-        {
-            "reconnection_expires_at": (
-                datetime.now(timezone.utc) + _RECONNECT_WINDOW
-            ).isoformat(),
-        },
-    )
+    # Do NOT refresh the reconnection window — doing so would allow indefinite
+    # extension of access by reconnecting repeatedly.
 
     logger.info("Session reconnected: session_id=%s", session_id)
 
@@ -252,12 +254,5 @@ async def end_session(session_id: str) -> None:
         },
     )
 
-    # Enqueue evaluation
-    celery_app.send_task(
-        "evaluate_interview_task",
-        args=[session_id],
-    )
-
-    logger.info(
-        "Session ended: session_id=%s duration=%ds", session_id, duration_seconds
-    )
+    logger.info("Session ended: session_id=%s duration=%ds", session_id, duration_seconds)
+    # Evaluation is enqueued by the agent's controller.finish() — not here.

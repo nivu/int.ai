@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, HTTPException, Header
 
@@ -98,8 +99,7 @@ async def get_my_session(
     Also resets stuck sessions (completed with 0 questions) so candidates
     can retry after a disconnect.
     """
-    from datetime import timedelta, timezone
-    from datetime import datetime as dt
+    from datetime import timedelta
 
     from app.services.supabase import supabase as sb
 
@@ -154,7 +154,7 @@ async def get_my_session(
         raise HTTPException(status_code=404, detail="Interview template not found")
     template = template_rows[0]
 
-    now = dt.now(timezone.utc)
+    now = datetime.now(timezone.utc)
 
     # Look for any existing session for this application
     all_sessions = (
@@ -167,7 +167,7 @@ async def get_my_session(
 
     session = None
     for s in all_sessions:
-        if s["status"] == "pending" and s.get("deadline") and s["deadline"] > now.isoformat():
+        if s["status"] == "pending" and s.get("deadline") and datetime.fromisoformat(s["deadline"]) > now:
             # Valid pending session with time remaining
             session = s
             break
@@ -237,8 +237,22 @@ async def get_my_session(
 
 
 @router.post("/create-room", response_model=CreateRoomResponse, status_code=201)
-async def create_room(body: CreateRoomRequest) -> CreateRoomResponse:
+async def create_room(
+    body: CreateRoomRequest,
+    authorization: str = Header(...),
+) -> CreateRoomResponse:
     """Create a LiveKit room for an existing interview session."""
+    from app.api.auth import _resolve_admin_org
+    from app.services.supabase import get_record as _get
+
+    caller_org = _resolve_admin_org(authorization)
+
+    session = _get("interview_sessions", body.session_id)
+    app_rec = _get("applications", session["application_id"])
+    post = _get("hiring_posts", app_rec["hiring_post_id"])
+    if post["org_id"] != caller_org:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     try:
         result = await start_session_from_existing(body.session_id)
     except Exception:
@@ -273,7 +287,11 @@ async def reconnect(body: ReconnectRequest) -> ReconnectResponse:
 
 
 @router.post("/end-session", status_code=200)
-async def end_session_route(session_id: str = Body(..., embed=True)) -> dict:
+async def end_session_route(
+    session_id: str = Body(..., embed=True),
+    authorization: str = Header(default=""),
+    x_invite_token: str = Header(default=""),
+) -> dict:
     """Mark an in-progress session as completed and enqueue evaluation.
 
     Called by the candidate's 'End Interview' button. Idempotent — if the
@@ -281,15 +299,34 @@ async def end_session_route(session_id: str = Body(..., embed=True)) -> dict:
     """
     from app.services.supabase import supabase as sb
     try:
+        # Resolve the calling candidate's identity and verify ownership.
+        if x_invite_token:
+            caller_candidate_id = _resolve_candidate_from_invite_token(sb, x_invite_token)
+        elif authorization:
+            token = authorization.removeprefix("Bearer ").strip()
+            _, caller_candidate_id = _resolve_candidate(sb, token)
+        else:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
         row = (
             sb.table("interview_sessions")
-            .select("status")
+            .select("status, application_id")
             .eq("id", session_id)
             .execute()
         )
         if not row or not row.data:
             raise HTTPException(status_code=404, detail="Session not found")
-        current_status = row.data[0]["status"]
+
+        session_row = row.data[0]
+
+        # Verify the session belongs to this candidate.
+        app_resp = sb.table("applications").select("candidate_id").eq(
+            "id", session_row["application_id"]
+        ).single().execute()
+        if not app_resp.data or app_resp.data["candidate_id"] != caller_candidate_id:
+            raise HTTPException(status_code=403, detail="Not authorised to end this session")
+
+        current_status = session_row["status"]
         if current_status not in ("in_progress", "pending"):
             # Already completed/terminated — nothing to do
             return {"status": "ok", "session_status": current_status}
@@ -334,15 +371,20 @@ async def terminate_abandoned(session_id: str = Body(..., embed=True)) -> dict:
 
 
 @router.get("/{session_id}/summary")
-async def get_interview_summary(session_id: str) -> dict:
+async def get_interview_summary(
+    session_id: str,
+    authorization: str = Header(...),
+) -> dict:
     """Generate an on-demand AI summary of a completed interview session.
 
     Spec: GET /api/v1/interview/{session_id}/summary
     Returns 404 if session not found, 400 if transcript unavailable, 500 if LLM fails.
     """
-    from datetime import datetime, timezone
     from openai import OpenAI
     from app.services.supabase import supabase as sb
+    from app.api.auth import _resolve_admin_org
+
+    caller_org = _resolve_admin_org(authorization)
 
     # Fetch session
     session_resp = (
@@ -355,6 +397,25 @@ async def get_interview_summary(session_id: str) -> dict:
     if not session_resp.data:
         raise HTTPException(status_code=404, detail="Interview session not found")
     session = session_resp.data
+
+    # Verify the session belongs to the caller's org
+    app_check = (
+        sb.table("applications")
+        .select("hiring_post_id")
+        .eq("id", session["application_id"])
+        .maybe_single()
+        .execute()
+    )
+    if app_check.data:
+        post_check = (
+            sb.table("hiring_posts")
+            .select("org_id")
+            .eq("id", app_check.data["hiring_post_id"])
+            .maybe_single()
+            .execute()
+        )
+        if not post_check.data or post_check.data["org_id"] != caller_org:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     completed_statuses = {"completed", "terminated_tab_switch", "terminated_abandoned"}
     if session["status"] not in completed_statuses:
@@ -473,8 +534,21 @@ async def get_interview_summary(session_id: str) -> dict:
 
 
 @router.post("/evaluate", response_model=EvaluateResponse, status_code=202)
-async def evaluate(body: EvaluateRequest) -> EvaluateResponse:
+async def evaluate(
+    body: EvaluateRequest,
+    authorization: str = Header(...),
+) -> EvaluateResponse:
     """Enqueue an evaluation task for a completed interview session."""
+    from app.api.auth import _resolve_admin_org
+    from app.services.supabase import get_record as _get
+
+    caller_org = _resolve_admin_org(authorization)
+    session = _get("interview_sessions", body.session_id)
+    app_rec = _get("applications", session["application_id"])
+    post = _get("hiring_posts", app_rec["hiring_post_id"])
+    if post["org_id"] != caller_org:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     try:
         result = celery_app.send_task(
             "evaluate_interview_task",

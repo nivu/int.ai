@@ -31,11 +31,24 @@ class QuestionGenerator:
         jd_text: str,
         job_title: str = "",
         conversation_history: list[dict[str, str]] | None = None,
+        custom_questions: list[str] | None = None,
+        resume_projects: list[dict] | None = None,
     ) -> None:
         self.resume_markdown = resume_markdown
         self.jd_text = jd_text
         self.job_title = job_title
         self.conversation_history: list[dict[str, str]] = conversation_history or []
+        # Recruiter-defined questions to ask before AI-generated ones.
+        # Filter out any empty or non-string entries at construction time.
+        self._custom_questions_remaining: list[str] = [
+            q for q in (custom_questions or []) if isinstance(q, str) and q.strip()
+        ]
+        # Resume projects to anchor explicit project questions to.
+        # Filtered to entries with a non-empty name.
+        self._projects_to_probe: list[dict] = [
+            p for p in (resume_projects or [])
+            if isinstance(p, dict) and str(p.get("name", "")).strip()
+        ]
 
     def _llm_json(self, system_prompt: str, user_content: str, temperature: float = 0.7) -> dict:
         client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
@@ -50,8 +63,69 @@ class QuestionGenerator:
         )
         return json.loads(response.choices[0].message.content)
 
+    def _generate_anchored_project_question(self, project: dict) -> dict[str, Any]:
+        """Generate a question that explicitly names and probes a resume project."""
+        name = str(project.get("name", "")).strip()
+        description = str(project.get("description", "") or "").strip()
+        tech = str(project.get("tech", "") or "").strip()
+        role_context = f" for a {self.job_title} role" if self.job_title else ""
+
+        system_prompt = (
+            f"You are an expert technical interviewer conducting an interview{role_context}. "
+            "Generate a deep, specific technical question that explicitly references a named "
+            "project from the candidate's resume. "
+            "The question MUST open with a natural reference to the project — for example: "
+            "'I see you worked on [project name] — ...' or 'In your [project name] project, ...' "
+            "Never ask generically about 'a project you worked on'. "
+            "Probe for concrete technical decisions, trade-offs, or challenges specific to this project. "
+            "Respond with ONLY a JSON object: "
+            '{"question_text": "...", "topic": "2-4 word label for the specific topic"}'
+        )
+        user_content = (
+            f"Project name: {name}\n"
+            f"Project description: {description}\n"
+            f"Technologies used: {tech}\n\n"
+            f"Job description:\n{self.jd_text}"
+        )
+        try:
+            result = self._llm_json(system_prompt, user_content, temperature=0.7)
+            return {
+                "question_text": result.get("question_text", "").strip(),
+                "question_type": "resume_project",
+                "topic": result.get("topic", name),
+            }
+        except Exception:
+            logger.exception("Failed to generate anchored question for project=%r", name)
+            raise
+
     def generate_next_question(self, foundational_ratio: float = 0.6) -> dict[str, Any]:
-        """Return the next interview question as a dict."""
+        """Return the next interview question as a dict.
+
+        Priority order:
+        1. Recruiter custom questions (asked first, in order)
+        2. Resume-anchored project questions (one per project, in order)
+        3. LLM-generated questions (fill remaining slots)
+        """
+        if self._custom_questions_remaining:
+            question_text = self._custom_questions_remaining.pop(0)
+            return {
+                "question_text": question_text,
+                "question_type": "custom",
+                "topic": "recruiter question",
+            }
+
+        if self._projects_to_probe:
+            project = self._projects_to_probe.pop(0)
+            try:
+                return self._generate_anchored_project_question(project)
+            except Exception:
+                # Generation failed — put the project back and fall through to LLM.
+                self._projects_to_probe.insert(0, project)
+                logger.warning(
+                    "Anchored question generation failed for project=%r — falling back to LLM",
+                    project.get("name"),
+                )
+
         covered_topics = [
             entry.get("topic", "") for entry in self.conversation_history if entry.get("topic")
         ]
@@ -81,6 +155,10 @@ class QuestionGenerator:
 
     def should_follow_up(self, last_answer: str) -> bool:
         """Assess whether the last answer is vague and needs a follow-up probe."""
+        last_question = self._last_question_text()
+        if not last_question or not last_answer or not last_answer.strip():
+            return False
+
         system_prompt = (
             "You are an expert technical interviewer evaluator. "
             "Determine whether the answer is vague, superficial, or "
@@ -89,7 +167,7 @@ class QuestionGenerator:
         )
 
         user_content = (
-            f"Question asked:\n{self._last_question_text()}\n\n"
+            f"Question asked:\n{last_question}\n\n"
             f"Candidate's answer:\n{last_answer}"
         )
 
