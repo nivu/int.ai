@@ -242,15 +242,15 @@ async def create_room(
     authorization: str = Header(...),
 ) -> CreateRoomResponse:
     """Create a LiveKit room for an existing interview session."""
-    from app.api.auth import _resolve_admin_org
     from app.services.supabase import get_record as _get
+    from app.services.supabase import supabase as sb
 
-    caller_org = _resolve_admin_org(authorization)
+    token = authorization.removeprefix("Bearer ").strip()
+    _, candidate_id = _resolve_candidate(sb, token)
 
     session = _get("interview_sessions", body.session_id)
     app_rec = _get("applications", session["application_id"])
-    post = _get("hiring_posts", app_rec["hiring_post_id"])
-    if post["org_id"] != caller_org:
+    if app_rec["candidate_id"] != candidate_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
