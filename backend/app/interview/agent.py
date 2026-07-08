@@ -15,10 +15,41 @@ from livekit.plugins import deepgram, openai, silero
 
 from app.config import settings
 from app.interview.question_gen import QuestionGenerator
-from app.services.supabase import update_record
+from app.services.supabase import get_record, supabase, update_record
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
+
+# Statuses that mean the session has already reached a terminal state.
+# finish() must never overwrite these — most importantly, they cover the
+# race where the browser's unload beacon (POST /interview/terminate-abandoned)
+# marks the session terminated_abandoned a moment before the LiveKit room's
+# own disconnect handler fires and calls finish() again.
+_TERMINAL_SESSION_STATUSES = frozenset(
+    {"completed", "terminated_tab_switch", "terminated_abandoned", "disconnected", "expired"}
+)
+
+
+def _sync_application_status_on_termination(session_id: str) -> None:
+    """Advance applications.status so a terminated interview stops showing
+    as still-invited (which left the candidate portal's Start Interview
+    button visible and the status tracker stuck before Interview Complete).
+
+    Guarded to only move status forward from interview_sent/interview_invited
+    so it never clobbers a status an evaluation task already set.
+    """
+    try:
+        session_row = get_record("interview_sessions", session_id)
+        application_id = session_row.get("application_id")
+        if not application_id:
+            return
+        supabase.table("applications").update({"status": "interviewed"}).eq(
+            "id", application_id
+        ).in_("status", ["interview_sent", "interview_invited"]).execute()
+    except Exception:
+        logger.exception(
+            "Failed to sync application status for terminated session %s", session_id
+        )
 
 # Load Silero VAD once at module level so each session doesn't re-initialise
 # the ONNX model from disk.
@@ -109,6 +140,29 @@ class _SessionController:
         from datetime import datetime, timezone
         duration = int(self.elapsed_seconds)
 
+        # Re-check the DB — another path (e.g. the sendBeacon-triggered
+        # /interview/terminate-abandoned call on tab close) may have already
+        # moved this session to a terminal status between that call and the
+        # LiveKit room's own disconnect handler invoking finish(). Trust
+        # whatever is already there instead of clobbering it back to
+        # "pending" or "completed".
+        try:
+            current_status = get_record("interview_sessions", self.session_id).get("status")
+        except Exception:
+            current_status = None
+            logger.exception(
+                "Failed to re-fetch session %s status before finish()", self.session_id
+            )
+
+        if current_status in _TERMINAL_SESSION_STATUSES:
+            logger.info(
+                "Session %s already terminal (%s) — skipping finish() overwrite",
+                self.session_id, current_status,
+            )
+            if current_status != "completed":
+                _sync_application_status_on_termination(self.session_id)
+            return
+
         # If the candidate disconnected before answering any questions AND this was
         # not an explicit termination (tab switch / timeout), reset to pending so
         # they can retry after a genuine connection issue.
@@ -160,6 +214,7 @@ class _SessionController:
             logger.info(
                 "Session %s was terminated — skipping evaluation task", self.session_id
             )
+            _sync_application_status_on_termination(self.session_id)
             return
 
         try:
