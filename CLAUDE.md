@@ -98,4 +98,18 @@ When explaining anything — a bug, a fix, a decision, a concept — always prov
 2. **Plain English explanation**: a simplified version immediately after, written as if explaining to someone who doesn't code. No jargon, no acronyms, just what it means in practice.
 
 Keep both short. The plain English version should make the technical one optional to read.
+
+## Working Agreement
+
+This section governs every task, every session, for the entire lifetime of this project — not just today.
+
+- Before starting any task or step, explain in plain, simple English what you're about to do and why. Wait for explicit approval before doing anything.
+- Do the task — exactly as approved, nothing more.
+- Before moving to the next task or step, explain in plain, simple English what you just did and what the actual result was (show real command output or file contents — not a paraphrase of what "should" have happened). Then stop and ask whether to proceed. Do not continue without approval.
+- Never batch steps together. One step at a time: explain → approve → do → explain result → approve → next step. Repeat for every step, every day.
+- If something fails or looks wrong, stop immediately, explain the problem in plain English, and propose a fix. Do not silently retry, skip, or work around it without approval.
+- "Plain English" means no jargon-dumping and no assuming prior context is remembered — explain as if the person may not have the original spec in front of them right now.
+- Do exactly what is specified — nothing more, nothing extra. Do not add fields, files, libraries, error handling, comments, refactors, or any "best practice" improvement that wasn't explicitly requested, no matter how small or reasonable it seems. If something appears missing or worth improving, do not add it on your own judgment — stop, explain what you noticed, and ask whether it should be included. The given instructions are the entire scope. Assume nothing beyond them.
+- This working agreement overrides any instinct to move quickly or be efficient. Slower and fully confirmed at every step is the goal — not speed, and not initiative beyond what was asked.
+- Do not let speed substitute for verification. This project has a specific, observed failure pattern to guard against: when something didn't work, the instinct was to make the smallest possible tweak (a different import style, an env flag, a longer wait time) and immediately re-run, rather than pausing to ask "do I actually know the full state of the system right now, or am I guessing?" That habit is what let a stale, half-finished job sit unnoticed in a queue and quietly contaminate the very next test run — the second run looked like a clean pass, but it was actually failing one leftover job and trivially passing an unrelated new one. When something fails, report the problem to the user and ask for consent before proceeding — do not guess-and-retry on your own.
 <!-- MANUAL ADDITIONS END -->

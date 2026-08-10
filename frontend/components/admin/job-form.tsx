@@ -105,6 +105,7 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
 
   const [skillInput, setSkillInput] = useState("");
   const [questionInput, setQuestionInput] = useState("");
+  const [weightsError, setWeightsError] = useState<string | null>(null);
 
   // ---- helpers ----
 
@@ -117,33 +118,11 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
 
   const updateWeight = useCallback(
     (key: keyof HiringPostFormData["scoring_weights"], raw: number) => {
-      setForm((prev) => {
-        const others = Object.keys(prev.scoring_weights).filter(
-          (k) => k !== key,
-        ) as (keyof HiringPostFormData["scoring_weights"])[];
-
-        const clamped = Math.min(Math.max(raw, 0), 1);
-        const remaining = 1 - clamped;
-        const othersSum =
-          others.reduce((s, k) => s + prev.scoring_weights[k], 0) || 1;
-
-        const newWeights = { ...prev.scoring_weights, [key]: clamped };
-        others.forEach((k) => {
-          newWeights[k] = parseFloat(
-            ((prev.scoring_weights[k] / othersSum) * remaining).toFixed(2),
-          );
-        });
-
-        // ensure the total is exactly 1.0
-        const total = Object.values(newWeights).reduce((a, b) => a + b, 0);
-        if (total !== 1) {
-          newWeights[others[0]] = parseFloat(
-            (newWeights[others[0]] + (1 - total)).toFixed(2),
-          );
-        }
-
-        return { ...prev, scoring_weights: newWeights };
-      });
+      const clamped = Math.min(Math.max(raw, 0), 1);
+      setForm((prev) => ({
+        ...prev,
+        scoring_weights: { ...prev.scoring_weights, [key]: clamped },
+      }));
     },
     [],
   );
@@ -200,6 +179,19 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const totalWeight = Object.values(form.scoring_weights).reduce(
+      (a, b) => a + b,
+      0,
+    );
+    if (Math.abs(totalWeight - 1) > 0.001) {
+      setWeightsError(
+        `Scoring weights must add up to 100%. Currently at ${Math.round(totalWeight * 100)}%.`,
+      );
+      return;
+    }
+    setWeightsError(null);
+
     await onSubmit(form);
   };
 
@@ -385,6 +377,9 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
               />
             </div>
           ))}
+          {weightsError && (
+            <p className="text-xs text-destructive">{weightsError}</p>
+          )}
 
           {/* Threshold */}
           <div className="space-y-1.5">
