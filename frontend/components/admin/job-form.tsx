@@ -105,7 +105,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
 
   const [skillInput, setSkillInput] = useState("");
   const [questionInput, setQuestionInput] = useState("");
-  const [weightsError, setWeightsError] = useState<string | null>(null);
 
   // ---- helpers ----
 
@@ -179,19 +178,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const totalWeight = Object.values(form.scoring_weights).reduce(
-      (a, b) => a + b,
-      0,
-    );
-    if (Math.abs(totalWeight - 1) > 0.001) {
-      setWeightsError(
-        `Scoring weights must add up to 100%. Currently at ${Math.round(totalWeight * 100)}%.`,
-      );
-      return;
-    }
-    setWeightsError(null);
-
     await onSubmit(form);
   };
 
@@ -377,9 +363,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
               />
             </div>
           ))}
-          {weightsError && (
-            <p className="text-xs text-destructive">{weightsError}</p>
-          )}
 
           {/* Threshold */}
           <div className="space-y-1.5">
