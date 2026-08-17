@@ -69,10 +69,9 @@ export function ApplyPageClient({ hiringPost }: ApplyPageClientProps) {
         </div>
 
         {hiringPost.description && (
-          <div
-            className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground"
-            dangerouslySetInnerHTML={{ __html: hiringPost.description }}
-          />
+          <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground">
+            {hiringPost.description}
+          </div>
         )}
       </div>
 
