@@ -12,6 +12,10 @@ backend/__pycache__/
 backend/**/__pycache__/
 backend/**/*.pyc
 backend/*.egg-info/
+backend/.ruff_cache/
+backend/.pytest_cache/
+.ruff_cache/
+.pytest_cache/
 *.egg-info/
 dist/
 build/
