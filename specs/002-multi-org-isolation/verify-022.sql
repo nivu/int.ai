@@ -15,10 +15,13 @@
 --
 -- Any row that is not OK means the migrations and the database have drifted.
 --
--- Last run 2026-09-03 against production: all checks OK after the corrections
--- in migrations 022 (removed two policies that 019 had superseded) and 023
--- (captured app_anon_insert / cand_anon_insert, which existed only in prod).
--- Expected result today is every row OK; anything else is new drift.
+-- BASELINE: run against production 2026-09-03 after the corrections in
+-- migrations 022 and 023. Result: 40 rows, every one OK, and check 6 returned
+-- no rows at all — no policy exists in the database that the migrations do not
+-- declare. Migrations and production agree.
+--
+-- That is the known-good state. Any row that is not OK, or any row appearing
+-- under check 6, is drift introduced since.
 --
 -- Expectations below include policies from migrations 019, 020 and 023, not
 -- only 022 — this is a drift check for the whole RLS surface.
