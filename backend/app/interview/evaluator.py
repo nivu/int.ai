@@ -19,7 +19,7 @@ import logging
 import re
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from openai import OpenAI
@@ -259,7 +259,7 @@ def evaluate_interview(session_id: str) -> dict[str, Any]:
 
     # ── Persist report ─────────────────────────────────────────────────────
     share_token = secrets.token_urlsafe(24)[:32]
-    share_expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    share_expires_at = (datetime.now(UTC) + timedelta(days=7)).isoformat()
 
     report_data: dict[str, Any] = {
         "session_id": session_id,

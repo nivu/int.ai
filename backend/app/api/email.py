@@ -200,6 +200,7 @@ async def send_bulk_custom_email(
 ) -> BulkCustomEmailResponse:
     """Send recruiter-authored email content to multiple recipients."""
     import asyncio
+
     from app.api.auth import _resolve_admin_org
     _resolve_admin_org(authorization)
 

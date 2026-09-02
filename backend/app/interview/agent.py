@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC
 from typing import Any
 
 from livekit.agents import Agent, AgentSession
@@ -137,7 +138,7 @@ class _SessionController:
             return
         self.ended = True
 
-        from datetime import datetime, timezone
+        from datetime import datetime
         duration = int(self.elapsed_seconds)
 
         # Re-check the DB — another path (e.g. the sendBeacon-triggered
@@ -169,7 +170,7 @@ class _SessionController:
         if self.question_count == 0 and not self.terminated:
             try:
                 from datetime import timedelta
-                new_deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+                new_deadline = (datetime.now(UTC) + timedelta(days=7)).isoformat()
                 update_record(
                     "interview_sessions",
                     self.session_id,
@@ -197,7 +198,7 @@ class _SessionController:
         update_fields: dict = {
             "duration_seconds": duration,
             "questions_asked": self.question_count,
-            "ended_at": datetime.now(timezone.utc).isoformat(),
+            "ended_at": datetime.now(UTC).isoformat(),
         }
         if not self.terminated:
             update_fields["status"] = "completed"

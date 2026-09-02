@@ -16,11 +16,11 @@ name: Frontend CI/CD
 
 on:
   push:
-    branches: [prod]
+    branches: [prod, main]
     paths:
       - "frontend/**"
   pull_request:
-    branches: [prod]
+    branches: [prod, main]
     paths:
       - "frontend/**"
 

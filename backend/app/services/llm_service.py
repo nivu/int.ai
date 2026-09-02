@@ -9,15 +9,16 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from openai import OpenAI, RateLimitError
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 from app.config import settings
@@ -252,7 +253,7 @@ async def generate_question_async(
             # Fallback to cached question
             return _get_fallback_question(conversation_history)
         return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("LLM request timeout session=%s", session_id)
         return _get_fallback_question(conversation_history)
 

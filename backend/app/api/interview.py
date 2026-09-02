@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, HTTPException, Header
+from fastapi import APIRouter, Body, Header, HTTPException
 
+from app.config import settings
+from app.interview.session_manager import (
+    end_session,
+    reconnect_session,
+    start_session_from_existing,
+)
 from app.models.interview import (
     CreateRoomRequest,
     CreateRoomResponse,
@@ -16,8 +22,6 @@ from app.models.interview import (
     ReconnectRequest,
     ReconnectResponse,
 )
-from app.config import settings
-from app.interview.session_manager import end_session, reconnect_session, start_session_from_existing
 from app.worker import celery_app
 
 _TERMINATED_STATUSES = frozenset({"terminated_tab_switch", "terminated_abandoned"})
@@ -154,7 +158,7 @@ async def get_my_session(
         raise HTTPException(status_code=404, detail="Interview template not found")
     template = template_rows[0]
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Look for any existing session for this application
     all_sessions = (
@@ -381,8 +385,9 @@ async def get_interview_summary(
     Returns 404 if session not found, 400 if transcript unavailable, 500 if LLM fails.
     """
     from openai import OpenAI
-    from app.services.supabase import supabase as sb
+
     from app.api.auth import _resolve_admin_org
+    from app.services.supabase import supabase as sb
 
     caller_org = _resolve_admin_org(authorization)
 
@@ -528,7 +533,7 @@ async def get_interview_summary(
     return {
         "session_id": session_id,
         "summary": summary_text,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "model_used": "gpt-4o-mini",
     }
 
