@@ -1,5 +1,6 @@
 """int.ai backend entry point — FastAPI application."""
 
+import asyncio
 import logging
 import subprocess
 import sys
@@ -19,7 +20,9 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("int.ai")
 
 # ---------------------------------------------------------------------------
-# Lifespan: auto-start Celery worker alongside the API server
+# Lifespan: optionally run a Celery worker inside the API process.
+# Off by default — production runs a dedicated `celery` service. See
+# Settings.RUN_EMBEDDED_WORKER.
 # ---------------------------------------------------------------------------
 _celery_proc: subprocess.Popen | None = None
 
@@ -28,7 +31,15 @@ _celery_proc: subprocess.Popen | None = None
 async def lifespan(app: FastAPI):
     global _celery_proc
 
-    _celery_proc = subprocess.Popen(
+    if not settings.RUN_EMBEDDED_WORKER:
+        logger.info(
+            '{"event": "embedded_worker_disabled", '
+            '"detail": "tasks are handled by the dedicated celery service"}'
+        )
+        yield
+        return
+
+    _celery_proc = subprocess.Popen(  # noqa: ASYNC220 - must outlive this coroutine
         [sys.executable, "-m", "celery", "-A", "app.worker", "worker", "--loglevel=info", "--concurrency=2"],
         stdout=None,  # inherit so logs appear in the same terminal
         stderr=None,
@@ -39,11 +50,16 @@ async def lifespan(app: FastAPI):
     finally:
         if _celery_proc and _celery_proc.poll() is None:
             _celery_proc.terminate()
-            try:
-                _celery_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                _celery_proc.kill()
+            # .wait() blocks; keep it off the event loop so shutdown stays responsive.
+            await asyncio.to_thread(_shutdown_celery, _celery_proc)
             logger.info("Celery worker stopped")
+
+
+def _shutdown_celery(proc: subprocess.Popen) -> None:
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 # ---------------------------------------------------------------------------

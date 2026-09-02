@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     RESEND_API_KEY: SecretStr
     FRONTEND_URL: str = "https://intai.nunnarilabs.com"
 
+    # Run a Celery worker inside the API process.
+    #
+    # Production deploys a dedicated `celery` service, so this must stay off
+    # there — otherwise two pools consume the same queue and the API container
+    # carries a worker's memory footprint alongside uvicorn.
+    #
+    # Useful locally, where it saves running a second process by hand.
+    # Set RUN_EMBEDDED_WORKER=true to opt in.
+    RUN_EMBEDDED_WORKER: bool = False
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
