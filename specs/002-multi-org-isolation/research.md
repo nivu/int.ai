@@ -1,5 +1,15 @@
-# Multi-Org Isolation & Candidate Evaluation Fixes
-**Session Date:** 2026-07-04
+# Research: Multi-Org Isolation & Candidate Evaluation
+
+> **Origin**: this is the working session log from 2026-07-04, preserved as the
+> research record for `specs/002-multi-org-isolation`. It captures the root-cause
+> analysis and the exact SQL that was applied to production by hand. The
+> requirements distilled from it live in [`spec.md`](spec.md); the access model
+> is described in [`data-model.md`](data-model.md); the SQL is captured as
+> `supabase/migrations/022_multi_org_rls_security_definer.sql`.
+>
+> Kept verbatim below — the failure signatures ("login broken", "candidates
+> disappeared") are the useful part and are hard to reconstruct.
+
 
 ---
 

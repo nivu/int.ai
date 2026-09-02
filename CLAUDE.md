@@ -27,18 +27,58 @@ frontend/          # Next.js (TypeScript, App Router)
     └── api/
 
 backend/           # Python (FastAPI)
-├── app/
+├── app/           # Deployed application code only
 │   ├── api/       # Route handlers
 │   ├── services/  # Business logic
 │   ├── interview/ # LiveKit agent
 │   ├── models/    # Pydantic models
 │   ├── tasks/     # Celery tasks
 │   └── worker.py
+├── scripts/       # One-off scripts — NOT deployed (see scripts/README.md)
+│   ├── ops/       # Worker/server process management
+│   ├── data/      # One-off data operations (mutate prod data)
+│   └── simulations/ # End-to-end pipeline exercises
+├── tests/         # pytest suite
+├── start_api.py            # Dockerfile CMD + Procfile web  — must stay at root
+├── start_worker_with_cron.py # Procfile worker              — must stay at root
+├── run_agent.py            # Procfile agent                 — must stay at root
 └── pyproject.toml
+
+docs/              # Living documentation only (see docs/README.md)
+├── architecture/
+├── guides/
+├── operations/
+└── archive/       # Point-in-time reports — never current, don't add here
+
+specs/             # spec-kit features — what the system MUST do
+├── 001-hiring-automation-platform/
+└── 002-multi-org-isolation/
 
 supabase/
 └── migrations/
 ```
+
+## Documentation Rules
+
+Four homes, and the distinction is load-bearing:
+
+| Content | Home |
+|---|---|
+| Principles and non-negotiables | `.specify/memory/constitution.md` |
+| What a feature must do, and why | `specs/NNN-slug/spec.md` |
+| How the system works today | `docs/` |
+| A record of a change that shipped | the commit message (or `docs/archive/`) |
+
+- Do NOT create `SOMETHING_FIX.md` / `*_SUMMARY.md` / `*_STATUS.md` files at the
+  repo root or in `backend/`. This is how ~50 stale reports accumulated.
+- **If a fix changes what the system is supposed to do, update the spec.** The
+  writeup is scaffolding; the spec is the artifact.
+- New feature: `.specify/scripts/bash/create-new-feature.sh "desc" --short-name "slug"`
+- Backend one-off scripts go in `backend/scripts/{ops,data,simulations}/`, never
+  at `backend/` root — that root is reserved for deploy-referenced entrypoints.
+- Schema changes MUST land as a numbered file in `supabase/migrations/`. SQL
+  applied by hand in the Supabase editor and not committed has already caused a
+  production/repo drift incident — see `specs/002-multi-org-isolation/`.
 
 ## Commands
 
@@ -79,6 +119,8 @@ See `.specify/memory/constitution.md` for full principles. Key rules:
 ## Recent Changes
 
 - 001-hiring-automation-platform: AI hiring automation (resume screening + voice interviews)
+- 002-multi-org-isolation: Org isolation, RLS `SECURITY DEFINER` model, admin/recruiter roles (retroactively specified from shipped work)
+- 2026-09-02 restructure: root/`backend/` report files archived to `docs/archive/`, `backend/` one-off scripts moved to `backend/scripts/`, docs split into `architecture/guides/operations`
 
 <!-- MANUAL ADDITIONS START -->
 ## Planned Features
