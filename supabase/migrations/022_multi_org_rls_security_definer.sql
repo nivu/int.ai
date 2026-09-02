@@ -108,8 +108,10 @@ DROP POLICY IF EXISTS "it_admin_all" ON interview_templates;
 DROP POLICY IF EXISTS "it_recruiter_select" ON interview_templates;
 CREATE POLICY "it_admin_all" ON interview_templates FOR ALL
   USING (is_org_admin(org_id)) WITH CHECK (is_org_admin(org_id));
-CREATE POLICY "it_recruiter_select" ON interview_templates FOR SELECT
-  USING (is_org_member(org_id));
+-- NOTE: it_recruiter_select is deliberately NOT recreated. Migration 019
+-- dropped it and replaced it with it_recruiter_all, because recruiters need
+-- INSERT to use the create-job UI. Recreating the SELECT policy here would
+-- reintroduce a policy 019 removed on purpose.
 
 -- hiring_posts
 -- The anon policy previously matched authenticated users too, leaking published
@@ -120,8 +122,9 @@ DROP POLICY IF EXISTS "hp_recruiter_select" ON hiring_posts;
 DROP POLICY IF EXISTS "hp_anon_published_select" ON hiring_posts;
 CREATE POLICY "hp_admin_all" ON hiring_posts FOR ALL
   USING (is_org_admin(org_id)) WITH CHECK (is_org_admin(org_id));
-CREATE POLICY "hp_recruiter_select" ON hiring_posts FOR SELECT
-  USING (is_org_member(org_id));
+-- NOTE: hp_recruiter_select is deliberately NOT recreated — see migration 019,
+-- which replaced it with hp_recruiter_all. Migration 020 additionally adds
+-- hp_candidate_select, which this migration leaves untouched.
 CREATE POLICY "hp_anon_published_select" ON hiring_posts FOR SELECT
   USING (status = 'published' AND share_slug IS NOT NULL AND auth.uid() IS NULL);
 
