@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from livekit.api import AccessToken, CreateRoomRequest, LiveKitAPI, VideoGrants
@@ -32,7 +32,7 @@ def _generate_candidate_token(room_name: str, identity: str, ttl: timedelta = _T
 
     Returns ``(token_jwt, expires_at)``.
     """
-    expires_at = datetime.now(timezone.utc) + ttl
+    expires_at = datetime.now(UTC) + ttl
 
     token = AccessToken(
         api_key=settings.LIVEKIT_API_KEY,
@@ -111,8 +111,8 @@ async def start_session_from_existing(session_id: str) -> dict[str, Any]:
     update_record("interview_sessions", session_id, {
         "livekit_room_name": room_name,
         "status": "in_progress",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "consent_given_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
+        "consent_given_at": datetime.now(UTC).isoformat(),
     })
 
     logger.info(
@@ -155,7 +155,7 @@ async def start_session(application_id: str, template_id: str) -> dict[str, Any]
             "status": "created",
             "reconnection_token": reconnection_token,
             "reconnection_expires_at": (
-                datetime.now(timezone.utc) + _RECONNECT_WINDOW
+                datetime.now(UTC) + _RECONNECT_WINDOW
             ).isoformat(),
         },
     )
@@ -209,7 +209,7 @@ async def reconnect_session(session_id: str, reconnection_token: str) -> dict[st
     expires_str = session.get("reconnection_expires_at", "")
     if expires_str:
         expires_at_dt = datetime.fromisoformat(expires_str)
-        if datetime.now(timezone.utc) > expires_at_dt:
+        if datetime.now(UTC) > expires_at_dt:
             raise PermissionError("Reconnection window has expired")
 
     room_name: str = session["room_name"]
@@ -242,7 +242,7 @@ async def end_session(session_id: str) -> None:
     if created_at_str:
         created_at = datetime.fromisoformat(created_at_str)
         duration_seconds = int(
-            (datetime.now(timezone.utc) - created_at).total_seconds()
+            (datetime.now(UTC) - created_at).total_seconds()
         )
 
     update_record(

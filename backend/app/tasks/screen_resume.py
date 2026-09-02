@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.config import settings
 from app.services import email as email_service
 from app.services.embeddings import embed_text, store_embedding
-from app.services.resume_parser import extract_text_from_pdf, extract_text_from_docx, parse_resume
+from app.services.resume_parser import extract_text_from_docx, extract_text_from_pdf, parse_resume
 from app.services.scoring import (
     compute_overall_score,
     score_all_dimensions,
@@ -133,7 +133,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             "culture_match_score": round(culture_score, 4),
             "overall_score": round(overall_score, 4),
             "status": "screened",
-            "screening_completed_at": datetime.now(timezone.utc).isoformat(),
+            "screening_completed_at": datetime.now(UTC).isoformat(),
         })
 
         # 8. Get candidate details for emails
@@ -144,12 +144,12 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         # 11. Auto-advance logic — binary outcome, no manual review band
         if overall_score >= threshold:
             # Passed — send interview invitation immediately
-            deadline_dt = datetime.now(timezone.utc) + timedelta(days=7)
+            deadline_dt = datetime.now(UTC) + timedelta(days=7)
             interview_deadline = deadline_dt.strftime("%B %d, %Y")
 
             update_record("applications", application_id, {
                 "status": "interview_sent",
-                "interview_invited_at": datetime.now(timezone.utc).isoformat(),
+                "interview_invited_at": datetime.now(UTC).isoformat(),
                 "interview_deadline": deadline_dt.isoformat(),
             })
 
@@ -221,7 +221,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             })
             # Touch the application to trigger a second realtime fetch with full resume details
             update_record("applications", application_id, {
-                "screening_completed_at": datetime.now(timezone.utc).isoformat(),
+                "screening_completed_at": datetime.now(UTC).isoformat(),
             })
             logger.info("Resume parse stored for application=%s", application_id)
         except Exception:

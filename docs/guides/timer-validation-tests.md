@@ -4,7 +4,7 @@
 Automated tests that validate the timer freeze/resume logic runs on every server startup to ensure the critical bug where timers don't resume after candidate pauses never happens again.
 
 ## Test Location
-- **Test File:** `backend/app/interview/test_timer_logic.py`
+- **Test File:** `backend/tests/test_timer_logic.py`
 - **Integration:** `backend/app/main.py` (runs during FastAPI lifespan startup)
 
 ## What Gets Tested
@@ -74,14 +74,14 @@ Run tests independently:
 
 ```bash
 cd backend
-python app/interview/test_timer_logic.py
+python tests/test_timer_logic.py
 ```
 
 Or as a module:
 
 ```bash
 cd backend
-python -m app.interview.test_timer_logic
+python -m tests.test_timer_logic
 ```
 
 ## Test Results
@@ -140,7 +140,7 @@ Add to your CI/CD pipeline:
 - name: Run Timer Logic Tests
   run: |
     cd backend
-    python app/interview/test_timer_logic.py
+    python tests/test_timer_logic.py
   
 - name: Fail if tests don't pass
   if: failure()
@@ -153,7 +153,7 @@ Add to `.git/hooks/pre-commit`:
 ```bash
 #!/bin/bash
 cd backend
-python app/interview/test_timer_logic.py
+python tests/test_timer_logic.py
 if [ $? -ne 0 ]; then
     echo "Timer logic tests failed - commit aborted"
     exit 1
@@ -203,7 +203,7 @@ If timer behavior changes:
 4. Check that resume logic calls `_arm_timer("timer_resumed")`
 
 ### Tests Don't Run
-1. Verify `app/interview/test_timer_logic.py` exists
+1. Verify `tests/test_timer_logic.py` exists
 2. Check import in `app/main.py`
 3. Ensure logging is configured correctly
 

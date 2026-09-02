@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import resend
 from typing import TypedDict
+
+import resend
 
 from app.config import settings
 

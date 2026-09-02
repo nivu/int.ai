@@ -93,7 +93,7 @@ if extra_silence is None:
 ### Automated Test Suite
 Created comprehensive test suite that runs on every server startup:
 
-**File:** `backend/app/interview/test_timer_logic.py`
+**File:** `backend/tests/test_timer_logic.py`
 
 ### Tests Included
 
@@ -120,7 +120,7 @@ Tests run automatically in `backend/app/main.py` during FastAPI startup:
 async def lifespan(app: FastAPI):
     # Run timer logic validation tests on startup
     logger.info("Running timer logic validation tests...")
-    from app.interview.test_timer_logic import run_all_timer_tests
+    from tests.test_timer_logic import run_all_timer_tests
     test_passed = await run_all_timer_tests()
     if not test_passed:
         logger.error("⚠️  Timer logic validation FAILED")
@@ -188,7 +188,7 @@ STATIC ANALYSIS: _arm_timer FUNCTION SIGNATURE
 ### Automated Testing
 ```bash
 cd backend
-python app/interview/test_timer_logic.py
+python tests/test_timer_logic.py
 ```
 
 Should output: `✅ ALL TESTS PASSED`
@@ -201,7 +201,7 @@ Should output: `✅ ALL TESTS PASSED`
 - `backend/app/interview/entrypoint.py` - Fixed timer logic
 
 ### Testing
-- `backend/app/interview/test_timer_logic.py` - New test suite
+- `backend/tests/test_timer_logic.py` - New test suite
 - `backend/app/main.py` - Integrated tests into startup
 
 ### Documentation
@@ -235,7 +235,7 @@ This fix ensures the implementation matches the spec requirements:
 - Alerts if anything breaks
 
 ### Manual Testing
-- Run `python app/interview/test_timer_logic.py` anytime
+- Run `python tests/test_timer_logic.py` anytime
 - Exit code 0 = pass, 1 = fail
 
 ### CI/CD Integration (Recommended)
@@ -244,7 +244,7 @@ Add to GitHub Actions or similar:
 - name: Validate Timer Logic
   run: |
     cd backend
-    python app/interview/test_timer_logic.py
+    python tests/test_timer_logic.py
 ```
 
 ---
