@@ -152,12 +152,23 @@ another candidate's rows are not returned.
 
 ## Outstanding Risks
 
-- **The production RLS policy set was applied by hand in the Supabase SQL editor
-  and was never captured as a migration.** Migration `008` still creates the
-  duplicate-session trigger that was dropped manually in production, so a fresh
-  `supabase db push` against a clean database reproduces the broken state rather
-  than the fixed one. Migration `022` (added alongside this spec) captures the
-  live state; it needs review against production before being relied upon.
+- **RESOLVED 2026-09-03** — migration `022` was verified against production with
+  `verify-022.sql`. The five `SECURITY DEFINER` functions exist and are
+  `SECURITY DEFINER` with `search_path` pinned; the duplicate-session trigger is
+  confirmed gone; all six `interview_reports` columns exist; the
+  `auth.uid() IS NULL` guard is in place. Two corrections were applied to `022`:
+  it recreated `hp_recruiter_select` and `it_recruiter_select`, which migration
+  `019` had deliberately dropped in favour of `_all` policies so recruiters can
+  create jobs. Those recreations were removed.
+
+- **OPEN — a second undocumented drift.** Production carries two policies that
+  exist in no migration at all: `applications.app_anon_insert` and
+  `candidates.cand_anon_insert`. These are what allow the public `/apply` form
+  to insert a candidate and an application without authentication. A rebuild
+  from `supabase/migrations/` would omit them, leaving the entire candidate
+  acquisition funnel non-functional — the same class of failure as the July
+  incident, in a more load-bearing place. Their definitions need to be dumped
+  from production and captured as a migration.
 - `app.backend_url` must be set in Supabase for the `pg_net` webhook, and
   `pg_net` must be enabled — verify with
   `SELECT * FROM pg_extension WHERE extname = 'pg_net';`
