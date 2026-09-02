@@ -13,8 +13,18 @@
 --   MISSING  022 claims something the database does not have
 --   UNEXPECTED  the database has something 022 would undo
 --
--- Any row that is not OK means 022 is wrong and must be corrected before it is
--- applied or relied on for a rebuild.
+-- Any row that is not OK means the migrations and the database have drifted.
+--
+-- BASELINE: run against production 2026-09-03 after the corrections in
+-- migrations 022 and 023. Result: 40 rows, every one OK, and check 6 returned
+-- no rows at all — no policy exists in the database that the migrations do not
+-- declare. Migrations and production agree.
+--
+-- That is the known-good state. Any row that is not OK, or any row appearing
+-- under check 6, is drift introduced since.
+--
+-- Expectations below include policies from migrations 019, 020 and 023, not
+-- only 022 — this is a drift check for the whole RLS surface.
 
 -- 1. The five SECURITY DEFINER functions, with search_path pinned.
 SELECT
@@ -81,9 +91,10 @@ SELECT '4-policies', e.tbl || '.' || e.pol,
 FROM (VALUES
     ('organizations','org_admin_all'), ('organizations','org_recruiter_select'),
     ('team_members','tm_self_select'), ('team_members','tm_admin_all'),
-    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_select'),
-    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_select'),
-    ('hiring_posts','hp_anon_published_select'),
+    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_all'),
+    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_all'),
+    ('hiring_posts','hp_anon_published_select'), ('hiring_posts','hp_candidate_select'),
+    ('applications','app_anon_insert'), ('candidates','cand_anon_insert'),
     ('applications','app_admin_all'), ('applications','app_recruiter_select'),
     ('applications','app_candidate_select'),
     ('candidates','cand_staff_select'), ('candidates','cand_self_select'),
@@ -124,9 +135,10 @@ WHERE schemaname = 'public'
   AND (tablename, policyname) NOT IN (VALUES
     ('organizations','org_admin_all'), ('organizations','org_recruiter_select'),
     ('team_members','tm_self_select'), ('team_members','tm_admin_all'),
-    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_select'),
-    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_select'),
-    ('hiring_posts','hp_anon_published_select'),
+    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_all'),
+    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_all'),
+    ('hiring_posts','hp_anon_published_select'), ('hiring_posts','hp_candidate_select'),
+    ('applications','app_anon_insert'), ('candidates','cand_anon_insert'),
     ('applications','app_admin_all'), ('applications','app_recruiter_select'),
     ('applications','app_candidate_select'),
     ('candidates','cand_staff_select'), ('candidates','cand_self_select'),
