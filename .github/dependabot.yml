@@ -1,0 +1,115 @@
+# Dependabot configuration
+#
+# Before this file existed, Dependabot ran with GitHub's defaults: security
+# updates only, one PR per advisory. That produced 15 simultaneous open PRs,
+# 13 of them for transitive dependencies nobody declared. The `groups` blocks
+# below collapse routine updates into a handful of PRs so the queue stays
+# readable and majors stand out.
+#
+# Grouping policy, per ecosystem:
+#   - security updates  -> one grouped PR (merge these first)
+#   - minor + patch     -> one grouped PR
+#   - major             -> ungrouped, one PR each, so they get real review
+#
+# Note: only `next` (frontend) and `pydantic-settings` (backend) are direct
+# dependencies among the current queue. Transitive bumps like cryptography,
+# starlette and torch are usually better pulled forward by their parent
+# (fastapi, sentence-transformers, pdfminer-six) than forced individually.
+#
+# ⚠️  CI does not run on these PRs. Both workflows trigger only on
+# `pull_request: branches: [prod]`, and Dependabot targets the default branch.
+# Until the workflows also trigger on `main`, every PR opened here merges
+# without lint, typecheck or tests having run.
+
+version: 2
+
+updates:
+  # ---------------------------------------------------------------
+  # Frontend — Next.js / pnpm
+  # ---------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+    groups:
+      frontend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      frontend-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Majors are deliberately left ungrouped so each gets its own PR.
+
+  # ---------------------------------------------------------------
+  # Backend — Python / uv
+  # ---------------------------------------------------------------
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+    groups:
+      backend-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      backend-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # torch arrives transitively via sentence-transformers and drags a set of
+      # multi-hundred-MB CUDA wheels with it. Major bumps should follow
+      # sentence-transformers rather than lead it.
+      # This suppresses version updates only — security advisories still open.
+      - dependency-name: "torch"
+        update-types:
+          - "version-update:semver-major"
+
+  # ---------------------------------------------------------------
+  # GitHub Actions
+  # ---------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"
