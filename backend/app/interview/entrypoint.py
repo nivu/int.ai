@@ -139,8 +139,8 @@ async def entrypoint(ctx: JobContext) -> None:
 
     async def _send_termination_email(reason: str) -> None:
         try:
-            from app.services.supabase import supabase as _sb
             from app.services import email as _email
+            from app.services.supabase import supabase as _sb
             _app = _sb.table("applications").select("candidate_id,hiring_post_id").eq(
                 "id", application_id).single().execute().data
             _cand = _sb.table("candidates").select("email,full_name").eq(

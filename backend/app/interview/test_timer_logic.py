@@ -224,7 +224,7 @@ async def test_arm_timer_function_signature() -> bool:
             os.path.dirname(__file__), "entrypoint.py"
         )
         
-        with open(entrypoint_path, "r") as f:
+        with open(entrypoint_path) as f:
             content = f.read()
         
         # Check for the correct function signature

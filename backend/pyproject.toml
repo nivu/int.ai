@@ -46,6 +46,14 @@ line-length = 100
 #   UP           pyupgrade — keep syntax current with target-version
 select = ["E4", "E7", "E9", "F", "I", "UP"]
 
+ignore = [
+    # UP042: EmailTemplate(str, Enum) -> StrEnum. Ruff marks this fix unsafe and
+    # it is: app/api/email.py:165 interpolates the member into an error message,
+    # which renders "EmailTemplate.rejection" today and would become "rejection"
+    # under StrEnum. A deliberate change, not a lint cleanup.
+    "UP042",
+]
+
 # Deliberately not enabled yet. Together these flag ~20 findings in app/ that
 # need judgement, not autofixes, and several look like real latent bugs:
 #   BLE001   blind `except Exception` (14x)
