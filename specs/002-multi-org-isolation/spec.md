@@ -161,14 +161,17 @@ another candidate's rows are not returned.
   `019` had deliberately dropped in favour of `_all` policies so recruiters can
   create jobs. Those recreations were removed.
 
-- **OPEN — a second undocumented drift.** Production carries two policies that
+- **RESOLVED 2026-09-03** — a second undocumented drift. Production carried two policies that
   exist in no migration at all: `applications.app_anon_insert` and
   `candidates.cand_anon_insert`. These are what allow the public `/apply` form
   to insert a candidate and an application without authentication. A rebuild
   from `supabase/migrations/` would omit them, leaving the entire candidate
   acquisition funnel non-functional — the same class of failure as the July
-  incident, in a more load-bearing place. Their definitions need to be dumped
-  from production and captured as a migration.
+  incident, in a more load-bearing place. Captured verbatim from `pg_policies`
+  as migration `023`. Note that `cand_anon_insert` is `WITH CHECK (true)` — an
+  open door for anyone holding the browser-side anon key, with no rate limiting
+  in front of it. Accepted for an open application form, but unrated; see the
+  migration's header.
 - `app.backend_url` must be set in Supabase for the `pg_net` webhook, and
   `pg_net` must be enabled — verify with
   `SELECT * FROM pg_extension WHERE extname = 'pg_net';`

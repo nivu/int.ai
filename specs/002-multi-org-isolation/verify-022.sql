@@ -13,8 +13,15 @@
 --   MISSING  022 claims something the database does not have
 --   UNEXPECTED  the database has something 022 would undo
 --
--- Any row that is not OK means 022 is wrong and must be corrected before it is
--- applied or relied on for a rebuild.
+-- Any row that is not OK means the migrations and the database have drifted.
+--
+-- Last run 2026-09-03 against production: all checks OK after the corrections
+-- in migrations 022 (removed two policies that 019 had superseded) and 023
+-- (captured app_anon_insert / cand_anon_insert, which existed only in prod).
+-- Expected result today is every row OK; anything else is new drift.
+--
+-- Expectations below include policies from migrations 019, 020 and 023, not
+-- only 022 — this is a drift check for the whole RLS surface.
 
 -- 1. The five SECURITY DEFINER functions, with search_path pinned.
 SELECT
@@ -81,9 +88,10 @@ SELECT '4-policies', e.tbl || '.' || e.pol,
 FROM (VALUES
     ('organizations','org_admin_all'), ('organizations','org_recruiter_select'),
     ('team_members','tm_self_select'), ('team_members','tm_admin_all'),
-    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_select'),
-    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_select'),
-    ('hiring_posts','hp_anon_published_select'),
+    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_all'),
+    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_all'),
+    ('hiring_posts','hp_anon_published_select'), ('hiring_posts','hp_candidate_select'),
+    ('applications','app_anon_insert'), ('candidates','cand_anon_insert'),
     ('applications','app_admin_all'), ('applications','app_recruiter_select'),
     ('applications','app_candidate_select'),
     ('candidates','cand_staff_select'), ('candidates','cand_self_select'),
@@ -124,9 +132,10 @@ WHERE schemaname = 'public'
   AND (tablename, policyname) NOT IN (VALUES
     ('organizations','org_admin_all'), ('organizations','org_recruiter_select'),
     ('team_members','tm_self_select'), ('team_members','tm_admin_all'),
-    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_select'),
-    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_select'),
-    ('hiring_posts','hp_anon_published_select'),
+    ('interview_templates','it_admin_all'), ('interview_templates','it_recruiter_all'),
+    ('hiring_posts','hp_admin_all'), ('hiring_posts','hp_recruiter_all'),
+    ('hiring_posts','hp_anon_published_select'), ('hiring_posts','hp_candidate_select'),
+    ('applications','app_anon_insert'), ('candidates','cand_anon_insert'),
     ('applications','app_admin_all'), ('applications','app_recruiter_select'),
     ('applications','app_candidate_select'),
     ('candidates','cand_staff_select'), ('candidates','cand_self_select'),
