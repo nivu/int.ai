@@ -478,8 +478,8 @@ async def entrypoint(ctx: JobContext) -> None:
 
         try:
             await session.interrupt()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("interrupt() no-op before closing say(): %s", exc)
 
         await session.say(
             "That was the last question. Thank you for your time and thoughtful "
@@ -752,8 +752,8 @@ async def entrypoint(ctx: JobContext) -> None:
                     async def _do_repeat() -> None:
                         try:
                             await session.interrupt()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("interrupt() no-op before repeat say(): %s", exc)
                         await session.say(question_to_repeat, allow_interruptions=False)
                     asyncio.create_task(_do_repeat())
                 else:
@@ -762,8 +762,8 @@ async def entrypoint(ctx: JobContext) -> None:
                     async def _do_repeat_blocked() -> None:
                         try:
                             await session.interrupt()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("interrupt() no-op before repeat_blocked say(): %s", exc)
                         await session.say(
                             "I can only repeat each question once — please go ahead and answer.",
                             allow_interruptions=False,
