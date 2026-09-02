@@ -14,7 +14,7 @@
     "@livekit/components-styles": "^1.2.0",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.101.1",
-    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-table": "^9.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "livekit-client": "^2.18.1",
