@@ -111,6 +111,9 @@ mcp_server = MCPServer(
         issuer_url=settings.BACKEND_PUBLIC_URL,
         resource_server_url=f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/mcp",
         required_scopes=[MCP_SCOPE],
+        # API keys are not OAuth tokens bound to a resource; ApiKeyVerifier
+        # already checks the key itself, so skip the audience check.
+        validate_token_resource=False,
     ),
 )
 
@@ -172,6 +175,7 @@ def create_job(
     skill_weight: float = 0.4,
     experience_weight: float = 0.35,
     culture_weight: float = 0.25,
+    similarity_weight: float = 0.2,
     screening_threshold: int = 70,
     max_questions: int = 10,
     max_duration_minutes: int = 45,
@@ -181,7 +185,12 @@ def create_job(
 ) -> dict[str, Any]:
     """Create a hiring post and its interview template.
 
-    Created as a draft unless publish=true. Scoring weights must sum to 1.
+    Created as a draft unless publish=true.
+
+    The four scoring weights are relative (each is divided by their total, so
+    they need not sum to 1): skill_weight, experience_weight, culture_weight
+    and similarity_weight (resume-text similarity to the job description).
+    Each must be between 0 and 1 and at least one must be positive.
     closes_at is an ISO-8601 timestamp for when applications close (optional).
     """
     org_id, member_id = _actor()
@@ -189,8 +198,16 @@ def create_job(
         raise ToolError("title is required")
     if not description.strip():
         raise ToolError("description is required (use generate_job_description to draft one)")
-    if abs((skill_weight + experience_weight + culture_weight) - 1.0) > 0.01:
-        raise ToolError("skill_weight + experience_weight + culture_weight must equal 1.0")
+    weights = {
+        "skill_match": skill_weight,
+        "experience_match": experience_weight,
+        "culture_match": culture_weight,
+        "embedding_similarity": similarity_weight,
+    }
+    if any(not 0.0 <= w <= 1.0 for w in weights.values()):
+        raise ToolError("each scoring weight must be between 0 and 1")
+    if sum(weights.values()) <= 0:
+        raise ToolError("at least one scoring weight must be greater than 0")
     if not 0 <= screening_threshold <= 100:
         raise ToolError("screening_threshold must be between 0 and 100")
 
@@ -224,11 +241,7 @@ def create_job(
                 "experience_min": experience_min,
                 "experience_max": experience_max,
                 "education_requirements": education_requirements,
-                "scoring_weights": {
-                    "skill_match": skill_weight,
-                    "experience_match": experience_weight,
-                    "culture_match": culture_weight,
-                },
+                "scoring_weights": weights,
                 "screening_threshold": screening_threshold,
                 "interview_template_id": template["id"],
                 "status": "published" if publish else "draft",
