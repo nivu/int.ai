@@ -77,6 +77,7 @@ The pinned `search_path` is a security requirement (FR-003), not a style choice.
 | | `ir_anon_share_select` | SELECT | `share_token IS NOT NULL AND (share_expires_at IS NULL OR share_expires_at > now())` |
 | `invite_tokens` | `it_admin_all` | ALL | `is_org_admin(org_id)` |
 | | `it_self_select` | SELECT | `email = (SELECT email FROM auth.users WHERE id = auth.uid())` |
+| `api_keys` | *(no policies)* | — | RLS enabled, nothing granted: service-role backend only (MCP auth, Settings → API Keys). Migration `025` |
 
 > Note: `it_admin_all` is used as a policy name on **both** `interview_templates`
 > and `invite_tokens`. Policy names are per-table so this is legal, but it makes

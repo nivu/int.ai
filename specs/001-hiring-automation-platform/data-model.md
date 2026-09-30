@@ -47,6 +47,28 @@ InterviewSession 1──* InterviewQA
 **RLS**: Members see only their own org. Admins can manage members.
 Recruiters see only assigned jobs.
 
+**Note**: No name or email is stored here. The login email lives on
+`auth.users`; Settings → Team reads it through `GET /api/v1/team`, which
+resolves it with the service-role client.
+
+### ApiKey
+
+| Field | Type | Constraints | Notes |
+|-------|------|-------------|-------|
+| id | uuid | PK | |
+| org_id | uuid | FK → Organization, NOT NULL | |
+| team_member_id | uuid | FK → TeamMember, NOT NULL | The member the key acts as |
+| name | text | NOT NULL | Label chosen at creation |
+| key_prefix | text | NOT NULL | Non-secret display prefix (`intai_` + 6 chars) |
+| key_hash | text | NOT NULL, UNIQUE | SHA-256 of the raw key; the raw key is never stored |
+| created_at | timestamptz | DEFAULT now() | |
+| last_used_at | timestamptz | | Updated on each successful MCP auth |
+| revoked_at | timestamptz | | Soft delete; a revoked key is refused immediately |
+
+**RLS**: Enabled with no policies. Only the backend's service-role client
+reads or writes this table (MCP auth in `app/mcp/auth.py`, management in
+`/api/v1/api-keys`). Added by migration 025.
+
 ### HiringPost
 
 | Field | Type | Constraints | Notes |
@@ -89,6 +111,7 @@ backend scheduled task).
 | current_company | text | | |
 | years_experience | integer | | |
 | location | text | | |
+| linkedin_url | text | | Required on the public apply form (migration 024); existing rows backfilled from resume text where a `linkedin.com/in/…` link was found |
 | photo_url | text | | Supabase Storage path |
 | auth_user_id | uuid | FK → auth.users | Created on first OTP login |
 | created_at | timestamptz | DEFAULT now() | |
