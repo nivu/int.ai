@@ -146,6 +146,7 @@ def _mount_routers() -> None:
         ("app.api.invitations", "router"),
         ("app.api.reports", "router"),
         ("app.api.api_keys", "router"),
+        ("app.api.team", "router"),
     ]
 
     for module_path, attr_name in router_modules:
