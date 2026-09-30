@@ -22,6 +22,7 @@ from app.models.interview import (
     ReconnectRequest,
     ReconnectResponse,
 )
+from app.services.usage import record_openai_chat
 from app.worker import celery_app
 
 _TERMINATED_STATUSES = frozenset({"terminated_tab_switch", "terminated_abandoned"})
@@ -526,6 +527,7 @@ async def get_interview_summary(
             timeout=30.0,
         )
         summary_text = (response.choices[0].message.content or "").strip()
+        record_openai_chat(response, "interview_summary", interview_session_id=session_id)
     except Exception:
         logger.exception("Failed to generate interview summary for session %s", session_id)
         raise HTTPException(status_code=500, detail="Failed to generate summary")

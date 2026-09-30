@@ -13,15 +13,18 @@ from livekit.agents import (
     CloseEvent,
     JobContext,
     JobProcess,
+    MetricsCollectedEvent,
     UserInputTranscribedEvent,
     UserStateChangedEvent,
     WorkerOptions,
     cli,
 )
+from livekit.agents.metrics import LLMMetrics, STTMetrics, TTSMetrics
 
 from app.config import settings
 from app.interview.agent import create_interview_agent
 from app.services.supabase import get_record, insert_record
+from app.services.usage import record_usage, set_usage_context
 
 logger = logging.getLogger("int.ai")
 _NO_RESPONSE_SECONDS = 15
@@ -83,6 +86,7 @@ async def entrypoint(ctx: JobContext) -> None:
     resume_projects: list[dict] = []
     jd_text = ""
     hiring_post: dict = {}
+    hiring_post_id = ""
     try:
         application = get_record("applications", application_id)
         hiring_post_id = application.get("hiring_post_id", "")
@@ -113,6 +117,17 @@ async def entrypoint(ctx: JobContext) -> None:
     except Exception:
         logger.exception("Failed to fetch template=%s session=%s", template_id, session_id)
 
+    # Tag every usage row written during this session (LLM calls made from
+    # the agent's own coroutines inherit this context; the metrics handler
+    # below passes IDs explicitly because plugin callbacks may not).
+    usage_ids = {
+        "org_id": hiring_post.get("org_id") if hiring_post else None,
+        "hiring_post_id": hiring_post_id or None,
+        "application_id": application_id or None,
+        "interview_session_id": session_id,
+    }
+    set_usage_context(**usage_ids)
+
     # ------------------------------------------------------------------
     # Create and start agent
     # ------------------------------------------------------------------
@@ -125,6 +140,35 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     logger.info("Starting agent session=%s max_questions=%d", session_id, controller.max_questions)
     await session.start(agent=agent, room=ctx.room)
+
+    # ------------------------------------------------------------------
+    # Usage metering: the LiveKit pipeline reports per-call metrics for the
+    # LLM (tokens), STT (audio seconds) and TTS (characters). Inserts run in
+    # a worker thread so the voice loop is never blocked.
+    # ------------------------------------------------------------------
+    @session.on("metrics_collected")
+    def _on_metrics_collected(event: MetricsCollectedEvent) -> None:
+        m = event.metrics
+        kwargs: dict | None = None
+        if isinstance(m, LLMMetrics):
+            kwargs = dict(
+                provider="openai", model="gpt-4o-mini", operation="interview_llm",
+                input_tokens=m.prompt_tokens, output_tokens=m.completion_tokens,
+                latency_ms=m.duration * 1000,
+            )
+        elif isinstance(m, STTMetrics):
+            kwargs = dict(
+                provider="deepgram", model="nova-2", operation="interview_stt",
+                duration_seconds=m.audio_duration,
+            )
+        elif isinstance(m, TTSMetrics):
+            kwargs = dict(
+                provider="deepgram", model="aura-luna-en", operation="interview_tts",
+                characters=m.characters_count, duration_seconds=m.audio_duration,
+            )
+        if kwargs:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, lambda k=kwargs: record_usage(**k, **usage_ids))
 
     shutdown_event = asyncio.Event()
 

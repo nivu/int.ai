@@ -26,6 +26,7 @@ from openai import OpenAI
 
 from app.config import settings
 from app.services.supabase import get_record, insert_record, supabase, update_record
+from app.services.usage import record_openai_chat, record_usage
 
 logger = logging.getLogger("int.ai")
 
@@ -111,11 +112,13 @@ def _call_o1(prompt: str, context: str) -> dict | None:
             model=_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("o1-mini API call failed for %s", context)
+        record_usage("openai", _MODEL, f"evaluate:{context}", status="error", error=str(exc))
         return None
 
     latency = time.monotonic() - start
+    record_openai_chat(response, f"evaluate:{context}", latency_ms=latency * 1000)
     usage = response.usage
     logger.info(
         "o1-mini call [%s]: latency=%.2fs prompt=%s completion=%s",
@@ -138,11 +141,13 @@ def _call_o1_text(prompt: str, context: str) -> str:
             model=_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("o1-mini text call failed for %s", context)
+        record_usage("openai", _MODEL, f"evaluate:{context}", status="error", error=str(exc))
         return ""
 
     latency = time.monotonic() - start
+    record_openai_chat(response, f"evaluate:{context}", latency_ms=latency * 1000)
     logger.info("o1-mini text call [%s]: latency=%.2fs", context, latency)
     return (response.choices[0].message.content or "").strip()
 

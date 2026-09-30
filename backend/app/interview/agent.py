@@ -17,6 +17,7 @@ from livekit.plugins import deepgram, openai, silero
 from app.config import settings
 from app.interview.question_gen import QuestionGenerator
 from app.services.supabase import get_record, supabase, update_record
+from app.services.usage import record_usage
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -140,6 +141,13 @@ class _SessionController:
 
         from datetime import datetime
         duration = int(self.elapsed_seconds)
+
+        # Billable LiveKit agent time for this session (recorded once; the
+        # `ended` guard above makes finish() idempotent).
+        record_usage(
+            "livekit", "agent-session", "interview_session",
+            duration_seconds=duration, interview_session_id=self.session_id,
+        )
 
         # Re-check the DB — another path (e.g. the sendBeacon-triggered
         # /interview/terminate-abandoned call on tab close) may have already
