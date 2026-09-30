@@ -645,7 +645,7 @@ Section layout (top to bottom):
 2. Top controls row:
    - Left: debounced search input
    - Right: status filter dropdown, bulk shortlisted email button, bulk
-     interview-rejected email button
+     rejected email button
 3. Selection bar (rendered only while at least one row is checked):
    - `N selected`, `Send Email to Selected`, `Open LinkedIn Profiles (k)`,
      `Clear` — see *Row Selection and Selected-Candidate Actions*.
@@ -746,13 +746,13 @@ Top-right controls include:
   - button enabled
   - opens shortlisted email modal
 
-#### Interview Rejected Button Rules
+#### Rejected Button Rules
 
-- Recipients: candidates with status `Interview Rejected` only.
-- `Resume Rejected` is explicitly excluded from this action.
+- Recipients: candidates with status `Resume Rejected` or
+  `Interview Rejected`.
 - If recipient count is 0:
   - button disabled
-  - tooltip: `No interview rejected candidates for this role`
+  - tooltip: `No rejected candidates for this role`
 - If recipient count > 0:
   - button enabled
   - opens rejected email modal
@@ -764,8 +764,9 @@ Shortlisted modal:
 - Recipient line example: `Sending to 6 Shortlisted candidates`
 
 Rejected modal:
-- Header: `Email Interview Rejected Candidates`
-- Recipient line example: `Sending to 3 Interview Rejected candidates`
+- Header: `Email Rejected Candidates`
+- Recipient line example:
+  `Sending to 3 Rejected candidates (Resume Rejected + Interview Rejected)`
 
 Both modals include:
 - Required subject input
@@ -792,7 +793,7 @@ Both modals include:
 - Recipient subset always includes the current job posting ID constraint.
 - Recipient subsets:
   - shortlisted flow: status == `Shortlisted`
-  - rejected flow: status == `Interview Rejected`
+  - rejected flow: status in {`Resume Rejected`, `Interview Rejected`}
   - selected flow: the rows currently checked, any status
 
 ### Email Delivery and Transport Requirement
@@ -903,11 +904,11 @@ Prohibitions:
    - show inline error
    - preserve subject/body/attachments for retry
 
-#### Interview Rejected Bulk Email End-to-End
+#### Rejected Bulk Email End-to-End
 1. Recruiter clicks `Send Bulk Email to Rejected Candidates`.
 2. Controller derives recipients from in-memory scoped list:
-   status == `Interview Rejected` only.
-3. Explicit exclusion enforced for `Resume Rejected`.
+   status in {`Resume Rejected`, `Interview Rejected`}.
+3. No other status is included.
 4. If none, button disabled with tooltip.
 5. If recipients exist, modal opens showing recipient count.
 6. Recruiter composes subject/body, adds attachments.
@@ -973,12 +974,13 @@ Prohibitions:
 9. On success, sees confirmation and modal closes; on failure, error appears
    and draft remains for retry.
 
-#### Walkthrough B: Email Interview Rejected Candidates
+#### Walkthrough B: Email Rejected Candidates
 1. Recruiter opens same section on the same job detail page.
 2. Optionally uses search/filter for visibility (recipient logic remains status
    constrained).
 3. Clicks `Send Bulk Email to Rejected Candidates`.
-4. Confirms recipient count for `Interview Rejected` candidates only.
+4. Confirms recipient count for `Resume Rejected` and `Interview Rejected`
+   candidates.
 5. Writes subject/body and adds optional attachments.
 6. Clicks `Send`.
 7. Sees loading.
