@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,41 +10,7 @@ import {
 } from "@/components/ui/card";
 import JobsFilterTabs from "./jobs-filter-tabs";
 import JobsRealtimeWrapper from "./jobs-realtime-wrapper";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface HiringPost {
-  id: string;
-  title: string;
-  department: string;
-  status: "draft" | "published" | "closed" | "archived";
-  created_at: string;
-  application_count: number;
-}
-
-// ---------------------------------------------------------------------------
-// Status badge helpers
-// ---------------------------------------------------------------------------
-
-const statusVariant: Record<
-  HiringPost["status"],
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  draft: "secondary",
-  published: "default",
-  closed: "destructive",
-  archived: "outline",
-};
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+import JobsTable, { type HiringPostRow } from "./jobs-table";
 
 // ---------------------------------------------------------------------------
 // Page (server component)
@@ -78,7 +43,9 @@ export default async function JobsPage({
   // Build query
   let query = supabase
     .from("hiring_posts")
-    .select("id, title, department, status, created_at")
+    .select(
+      "id, title, department, status, location_type, location, experience_min, experience_max, screening_threshold, created_at, published_at, closes_at",
+    )
     .order("created_at", { ascending: false });
 
   if (orgId) {
@@ -115,7 +82,7 @@ export default async function JobsPage({
     }
   }
 
-  const postsWithCounts: HiringPost[] = (jobs ?? []).map((j) => ({
+  const postsWithCounts: HiringPostRow[] = (jobs ?? []).map((j) => ({
     ...j,
     application_count: appCounts[j.id] ?? 0,
   }));
@@ -155,48 +122,7 @@ export default async function JobsPage({
                 No hiring posts found. Create your first job to get started.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 pr-4 font-medium">Title</th>
-                      <th className="pb-2 pr-4 font-medium">Department</th>
-                      <th className="pb-2 pr-4 font-medium">Status</th>
-                      <th className="pb-2 pr-4 font-medium">Applications</th>
-                      <th className="pb-2 pr-4 font-medium">Created</th>
-                      <th className="pb-2 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {postsWithCounts.map((job) => (
-                      <tr key={job.id} className="border-b last:border-0">
-                        <td className="py-3 pr-4 font-medium">{job.title}</td>
-                        <td className="py-3 pr-4 text-muted-foreground">
-                          {job.department || "—"}
-                        </td>
-                        <td className="py-3 pr-4">
-                          <Badge variant={statusVariant[job.status]}>
-                            {job.status}
-                          </Badge>
-                        </td>
-                        <td className="py-3 pr-4 tabular-nums">
-                          {job.application_count}
-                        </td>
-                        <td className="py-3 pr-4 text-muted-foreground">
-                          {formatDate(job.created_at)}
-                        </td>
-                        <td className="py-3">
-                          <Link href={`/jobs/${job.id}`}>
-                            <Button variant="outline" size="sm">
-                              View
-                            </Button>
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <JobsTable jobs={postsWithCounts} />
             )}
           </CardContent>
         </Card>

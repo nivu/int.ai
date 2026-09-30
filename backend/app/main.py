@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.mcp.server import build_mcp_app, mcp_server
 
 # ---------------------------------------------------------------------------
 # Structured JSON logging
@@ -29,6 +30,15 @@ _celery_proc: subprocess.Popen | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The MCP sub-app is mounted, so Starlette does not run its own lifespan;
+    # start its session manager here for the lifetime of the API process.
+    async with mcp_server.session_manager.run():
+        async with _celery_lifespan():
+            yield
+
+
+@asynccontextmanager
+async def _celery_lifespan():
     global _celery_proc
 
     if not settings.RUN_EMBEDDED_WORKER:
@@ -135,6 +145,7 @@ def _mount_routers() -> None:
         ("app.api.jobs", "router"),
         ("app.api.invitations", "router"),
         ("app.api.reports", "router"),
+        ("app.api.api_keys", "router"),
     ]
 
     for module_path, attr_name in router_modules:
@@ -145,3 +156,9 @@ def _mount_routers() -> None:
 
 
 _mount_routers()
+
+# ---------------------------------------------------------------------------
+# MCP server — served at /mcp (see docs/guides/mcp-server.md)
+# ---------------------------------------------------------------------------
+app.mount("/", build_mcp_app())
+logger.info("Mounted MCP server at /mcp")

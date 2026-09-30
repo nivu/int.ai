@@ -433,6 +433,7 @@ export default function InterviewReportView({
 
   useEffect(() => {
     if (completedSession?.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; state is set after await
       fetchSummary(completedSession.id);
     }
   }, [completedSession?.id, fetchSummary]);

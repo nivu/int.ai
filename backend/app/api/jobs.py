@@ -45,6 +45,8 @@ class JobCandidate(BaseModel):
     key_skills: list[str]
     overall: float | None
     status: str
+    linkedin_url: str | None = None
+    applied_at: str | None = None
 
 
 class JobCandidatesResponse(BaseModel):
@@ -144,7 +146,7 @@ async def get_job_candidates(
 
         applications = (
             supabase.table("applications")
-            .select("id,candidate_id,status,overall_score")
+            .select("id,candidate_id,status,overall_score,created_at")
             .eq("hiring_post_id", job_id)
             .order("created_at", desc=True)
             .execute()
@@ -159,7 +161,7 @@ async def get_job_candidates(
 
         candidates = (
             supabase.table("candidates")
-            .select("id,full_name,email")
+            .select("id,full_name,email,linkedin_url")
             .in_("id", candidate_ids)
             .execute()
             .data
@@ -192,6 +194,8 @@ async def get_job_candidates(
                     key_skills=skills_by_app.get(app["id"], []),
                     overall=app.get("overall_score"),
                     status=app.get("status", "applied"),
+                    linkedin_url=candidate.get("linkedin_url"),
+                    applied_at=app.get("created_at"),
                 )
             )
 
