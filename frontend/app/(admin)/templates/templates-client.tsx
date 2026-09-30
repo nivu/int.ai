@@ -24,6 +24,12 @@ import TemplateForm, {
   type TemplateFormData,
 } from "@/components/admin/template-form";
 import { createClient } from "@/lib/supabase/client";
+import {
+  SortableTh,
+  useSortState,
+  useSortedRows,
+  type SortAccessors,
+} from "@/components/shared/sortable-table";
 import type { InterviewTemplate } from "./page";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +43,16 @@ function formatDate(iso: string) {
     year: "numeric",
   });
 }
+
+type SortKey = "name" | "max_questions" | "max_duration_minutes" | "preset" | "created_at";
+
+const SORT_ACCESSORS: SortAccessors<InterviewTemplate, SortKey> = {
+  name: (t) => t.name,
+  max_questions: (t) => t.max_questions,
+  max_duration_minutes: (t) => t.max_duration_minutes,
+  preset: (t) => (t.is_preset ? (t.preset_role ?? "Preset") : null),
+  created_at: (t) => Date.parse(t.created_at),
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -54,6 +70,8 @@ export default function TemplatesClient({
 
   const [templates, setTemplates] = useState(initialTemplates);
   const [loading, setLoading] = useState(false);
+  const [sort, toggleSort] = useSortState<SortKey>({ key: "created_at", direction: "desc" });
+  const sortedTemplates = useSortedRows(templates, sort, SORT_ACCESSORS);
 
   // Dialog state
   const [createOpen, setCreateOpen] = useState(false);
@@ -274,16 +292,16 @@ export default function TemplatesClient({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="pb-2 pr-4 font-medium">Name</th>
-                    <th className="pb-2 pr-4 font-medium">Questions</th>
-                    <th className="pb-2 pr-4 font-medium">Duration</th>
-                    <th className="pb-2 pr-4 font-medium">Preset</th>
-                    <th className="pb-2 pr-4 font-medium">Created</th>
+                    <SortableTh label="Name" sortKey="name" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
+                    <SortableTh label="Questions" sortKey="max_questions" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
+                    <SortableTh label="Duration" sortKey="max_duration_minutes" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
+                    <SortableTh label="Preset" sortKey="preset" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
+                    <SortableTh label="Created" sortKey="created_at" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
                     <th className="pb-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {templates.map((template) => (
+                  {sortedTemplates.map((template) => (
                     <tr key={template.id} className="border-b last:border-0">
                       <td className="py-3 pr-4 font-medium">
                         {template.name}

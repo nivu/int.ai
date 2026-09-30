@@ -20,6 +20,7 @@ interface FormData {
   current_company: string;
   years_experience: string;
   location: string;
+  linkedin_url: string;
 }
 
 const initialFormData: FormData = {
@@ -30,6 +31,7 @@ const initialFormData: FormData = {
   current_company: "",
   years_experience: "",
   location: "",
+  linkedin_url: "",
 };
 
 export function ApplicationForm({
@@ -48,6 +50,7 @@ export function ApplicationForm({
   const isValid =
     formData.full_name.trim() !== "" &&
     formData.email.trim() !== "" &&
+    formData.linkedin_url.trim() !== "" &&
     resumePath !== null;
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -78,6 +81,7 @@ export function ApplicationForm({
             ? parseInt(formData.years_experience, 10)
             : null,
           location: formData.location.trim() || null,
+          linkedin_url: formData.linkedin_url.trim(),
           photo_url: photoPath || null,
           resume_url: resumePath,
           resume_filename: resumeFilename || "resume",
@@ -195,6 +199,21 @@ export function ApplicationForm({
               value={formData.location}
               onChange={handleChange}
               placeholder="San Francisco, CA"
+            />
+          </div>
+
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="linkedin_url">
+              LinkedIn Profile <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="linkedin_url"
+              name="linkedin_url"
+              type="url"
+              value={formData.linkedin_url}
+              onChange={handleChange}
+              placeholder="https://www.linkedin.com/in/your-name"
+              required
             />
           </div>
         </div>

@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     RESEND_API_KEY: SecretStr
     FRONTEND_URL: str = "https://intai.nunnarilabs.com"
+    # Public base URL of this API. Advertised by the MCP server as its resource
+    # identifier (see docs/guides/mcp-server.md). Set on Railway to the backend's domain.
+    BACKEND_PUBLIC_URL: str = "http://localhost:8000"
 
     # Run a Celery worker inside the API process.
     #

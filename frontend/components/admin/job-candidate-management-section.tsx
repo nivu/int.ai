@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Paperclip, X } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Loader2, Paperclip, X } from "lucide-react";
 import { backendFetch, BackendError } from "@/lib/api/backend";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  SortableTh,
+  useSortState,
+  useSortedRows,
+  type SortAccessors,
+} from "@/components/shared/sortable-table";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -53,6 +60,8 @@ interface CandidateRow {
   key_skills: string[];
   overall: number | null;
   status: CandidateStatus;
+  linkedin_url: string | null;
+  applied_at: string | null;
 }
 
 interface JobCandidatesResponse {
@@ -71,6 +80,17 @@ interface BulkEmailRequest {
   body: string;
   attachments: BulkAttachmentDraft[];
 }
+
+type EmailAudience = "shortlisted" | "rejected" | "selected";
+
+const EMAIL_DIALOG_COPY: Record<EmailAudience, { title: string; audience: string }> = {
+  shortlisted: { title: "Email Shortlisted Candidates", audience: "Shortlisted candidates" },
+  rejected: {
+    title: "Email Rejected Candidates",
+    audience: "Rejected candidates (Resume Rejected + Interview Rejected)",
+  },
+  selected: { title: "Email Selected Candidates", audience: "selected candidates" },
+};
 
 const STATUS_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All Statuses" },
@@ -97,6 +117,30 @@ function scorePercent(value: number | null): string {
   if (value == null) return "—";
   return `${Math.round(value * 100)}%`;
 }
+
+function formatAppliedDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+type CandidateSortKey =
+  | "name"
+  | "email"
+  | "key_skills"
+  | "overall"
+  | "status"
+  | "applied_at"
+  | "linkedin_url";
+
+const CANDIDATE_SORT_ACCESSORS: SortAccessors<CandidateRow, CandidateSortKey> = {
+  name: (c) => c.name || null,
+  email: (c) => c.email || null,
+  key_skills: (c) => (c.key_skills || []).length,
+  overall: (c) => c.overall,
+  status: (c) => STATUS_LABELS[c.status],
+  applied_at: (c) => (c.applied_at ? Date.parse(c.applied_at) : null),
+  linkedin_url: (c) => (c.linkedin_url ? 1 : 0),
+};
 
 function isAcceptedAttachmentType(contentType: string): boolean {
   const allowedPrefixes = ["image/"];
@@ -135,9 +179,11 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sort, toggleSort] = useSortState<CandidateSortKey>({ key: "applied_at", direction: "desc" });
 
-  const [isShortlistedModalOpen, setIsShortlistedModalOpen] = useState(false);
-  const [isRejectedModalOpen, setIsRejectedModalOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [emailAudience, setEmailAudience] = useState<EmailAudience | null>(null);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [emailAttachments, setEmailAttachments] = useState<BulkAttachmentDraft[]>([]);
@@ -154,6 +200,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     setIsCandidatesLoading(true);
     setCandidatesLoadError(null);
     setSourceCandidates([]);
+    setSelectedIds(new Set());
     try {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -193,12 +240,14 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     });
   }, [sourceCandidates, statusFilter, debouncedSearchQuery]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredCandidates.length / pageSize));
+  const sortedCandidates = useSortedRows(filteredCandidates, sort, CANDIDATE_SORT_ACCESSORS);
+
+  const totalPages = Math.max(1, Math.ceil(sortedCandidates.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pagedCandidates = useMemo(() => {
     const start = (safePage - 1) * pageSize;
-    return filteredCandidates.slice(start, start + pageSize);
-  }, [filteredCandidates, safePage, pageSize]);
+    return sortedCandidates.slice(start, start + pageSize);
+  }, [sortedCandidates, safePage, pageSize]);
 
   const shortlistedRecipients = useMemo(
     () => sourceCandidates.filter((candidate) => candidate.status === "shortlisted"),
@@ -211,6 +260,51 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     [sourceCandidates]
   );
 
+  const selectedCandidates = useMemo(
+    () => sourceCandidates.filter((candidate) => selectedIds.has(candidate.application_id)),
+    [sourceCandidates, selectedIds]
+  );
+  const selectedLinkedinUrls = useMemo(
+    () => selectedCandidates.map((candidate) => candidate.linkedin_url).filter((url): url is string => !!url),
+    [selectedCandidates]
+  );
+
+  const allOnPageSelected =
+    pagedCandidates.length > 0 && pagedCandidates.every((candidate) => selectedIds.has(candidate.application_id));
+  const someOnPageSelected = pagedCandidates.some((candidate) => selectedIds.has(candidate.application_id));
+
+  function toggleOne(applicationId: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(applicationId);
+      else next.delete(applicationId);
+      return next;
+    });
+  }
+
+  function toggleAllOnPage(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const candidate of pagedCandidates) {
+        if (checked) next.add(candidate.application_id);
+        else next.delete(candidate.application_id);
+      }
+      return next;
+    });
+  }
+
+  function openSelectedLinkedinProfiles() {
+    for (const url of selectedLinkedinUrls) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  const recipientsByAudience: Record<EmailAudience, CandidateRow[]> = {
+    shortlisted: shortlistedRecipients,
+    rejected: rejectedRecipients,
+    selected: selectedCandidates,
+  };
+
   const canSendShortlisted = shortlistedRecipients.length > 0 && !isCandidatesLoading;
   const canSendRejected = rejectedRecipients.length > 0 && !isCandidatesLoading;
   const sendDisabled = !emailSubject.trim() || !emailBody.trim() || isEmailSending;
@@ -222,9 +316,13 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     setEmailSendError(null);
   }
 
-  function closeModal(kind: "shortlisted" | "rejected") {
-    if (kind === "shortlisted") setIsShortlistedModalOpen(false);
-    else setIsRejectedModalOpen(false);
+  function openModal(kind: EmailAudience) {
+    setEmailSendError(null);
+    setEmailAudience(kind);
+  }
+
+  function closeModal() {
+    setEmailAudience(null);
     resetEmailComposer();
   }
 
@@ -250,11 +348,8 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     }
   }
 
-  async function sendBulk(kind: "shortlisted" | "rejected") {
-    const recipients =
-      kind === "shortlisted"
-        ? shortlistedRecipients.map((candidate) => candidate.email)
-        : rejectedRecipients.map((candidate) => candidate.email);
+  async function sendBulk(kind: EmailAudience) {
+    const recipients = recipientsByAudience[kind].map((candidate) => candidate.email).filter(Boolean);
 
     if (recipients.length === 0) return;
 
@@ -283,8 +378,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
           ? `Sent to ${result.sent_count} candidates (${result.failed_count} failed).`
           : `Sent to ${result.sent_count} candidates.`;
       setEmailSendSuccess(message);
-      if (kind === "shortlisted") setIsShortlistedModalOpen(false);
-      else setIsRejectedModalOpen(false);
+      setEmailAudience(null);
       resetEmailComposer();
     } catch (error) {
       if (error instanceof BackendError) {
@@ -343,10 +437,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
               variant="outline"
               disabled={!canSendShortlisted}
               title={!canSendShortlisted ? "No shortlisted candidates for this role" : undefined}
-              onClick={() => {
-                setEmailSendError(null);
-                setIsShortlistedModalOpen(true);
-              }}
+              onClick={() => openModal("shortlisted")}
             >
               Send Bulk Email to Shortlisted Candidates
             </Button>
@@ -355,10 +446,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
               variant="outline"
               disabled={!canSendRejected}
               title={!canSendRejected ? "No rejected candidates for this role" : undefined}
-              onClick={() => {
-                setEmailSendError(null);
-                setIsRejectedModalOpen(true);
-              }}
+              onClick={() => openModal("rejected")}
             >
               Send Bulk Email to Rejected Candidates
             </Button>
@@ -395,24 +483,77 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
 
         {!isCandidatesLoading && !candidatesLoadError && !showNoCandidates && !showNoMatches && (
           <>
+            {selectedIds.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                <span className="text-sm font-medium">{selectedIds.size} selected</span>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openModal("selected")}>
+                    Send Email to Selected
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedLinkedinUrls.length === 0}
+                    title={
+                      selectedLinkedinUrls.length === 0
+                        ? "None of the selected candidates has a LinkedIn profile"
+                        : "Opens each profile in a new tab. Allow pop-ups for this site if only one opens."
+                    }
+                    onClick={openSelectedLinkedinProfiles}
+                  >
+                    <ExternalLink className="mr-1 size-3" />
+                    Open LinkedIn Profiles ({selectedLinkedinUrls.length})
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[1100px] text-sm">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium">Job</th>
-                    <th className="px-3 py-2 font-medium">Key Skills</th>
-                    <th className="px-3 py-2 font-medium">Overall</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="w-10 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all candidates on this page"
+                        className="size-4 cursor-pointer accent-primary"
+                        checked={allOnPageSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = !allOnPageSelected && someOnPageSelected;
+                        }}
+                        onChange={(event) => toggleAllOnPage(event.target.checked)}
+                      />
+                    </th>
+                    <SortableTh label="Name" sortKey="name" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="Email" sortKey="email" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="Key Skills" sortKey="key_skills" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="Overall" sortKey="overall" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="Applied" sortKey="applied_at" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <SortableTh label="LinkedIn" sortKey="linkedin_url" sort={sort} onSort={toggleSort} className="px-3 py-2" />
+                    <th className="px-3 py-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pagedCandidates.map((candidate) => (
-                    <tr key={candidate.application_id} className="border-t">
+                    <tr
+                      key={candidate.application_id}
+                      className={`border-t ${selectedIds.has(candidate.application_id) ? "bg-primary/5" : ""}`}
+                    >
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${candidate.name || candidate.email}`}
+                          className="size-4 cursor-pointer accent-primary"
+                          checked={selectedIds.has(candidate.application_id)}
+                          onChange={(event) => toggleOne(candidate.application_id, event.target.checked)}
+                        />
+                      </td>
                       <td className="px-3 py-2">{candidate.name || "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{candidate.email || "—"}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{candidate.job || "—"}</td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
                           {(candidate.key_skills || []).slice(0, 4).map((skill) => (
@@ -426,6 +567,31 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
                       <td className="px-3 py-2 font-medium">{scorePercent(candidate.overall)}</td>
                       <td className="px-3 py-2">
                         <Badge variant="outline">{STATUS_LABELS[candidate.status]}</Badge>
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                        {formatAppliedDate(candidate.applied_at)}
+                      </td>
+                      <td className="px-3 py-2">
+                        {candidate.linkedin_url ? (
+                          <a
+                            href={candidate.linkedin_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+                          >
+                            Profile
+                            <ExternalLink className="size-3" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Link href={`/candidates/${candidate.application_id}`}>
+                          <Button variant="outline" size="sm">
+                            View
+                          </Button>
+                        </Link>
                       </td>
                     </tr>
                   ))}
@@ -481,12 +647,14 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
         )}
       </CardContent>
 
-      <Dialog open={isShortlistedModalOpen} onOpenChange={(open) => (!open ? closeModal("shortlisted") : setIsShortlistedModalOpen(open))}>
+      <Dialog open={emailAudience !== null} onOpenChange={(open) => (!open ? closeModal() : undefined)}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Email Shortlisted Candidates</DialogTitle>
+            <DialogTitle>{emailAudience ? EMAIL_DIALOG_COPY[emailAudience].title : ""}</DialogTitle>
             <DialogDescription>
-              Sending to {shortlistedRecipients.length} Shortlisted candidates
+              {emailAudience
+                ? `Sending to ${recipientsByAudience[emailAudience].length} ${EMAIL_DIALOG_COPY[emailAudience].audience}`
+                : ""}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -534,73 +702,15 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
             {emailSendError && <p className="text-sm text-red-600">{emailSendError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => closeModal("shortlisted")} disabled={isEmailSending}>
+            <Button variant="outline" onClick={closeModal} disabled={isEmailSending}>
               Cancel
             </Button>
-            <Button disabled={sendDisabled} onClick={() => void sendBulk("shortlisted")}>
-              {isEmailSending ? "Sending..." : "Send"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isRejectedModalOpen} onOpenChange={(open) => (!open ? closeModal("rejected") : setIsRejectedModalOpen(open))}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Email Rejected Candidates</DialogTitle>
-            <DialogDescription>
-              Sending to {rejectedRecipients.length} Rejected candidates (Resume Rejected + Interview Rejected)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="Subject"
-              value={emailSubject}
-              onChange={(event) => setEmailSubject(event.target.value)}
-            />
-            <Textarea
-              placeholder="Email body"
-              rows={8}
-              value={emailBody}
-              onChange={(event) => setEmailBody(event.target.value)}
-            />
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Attachments</label>
-              <Input
-                type="file"
-                multiple
-                accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(event) => void addAttachments(event.target.files)}
-              />
-              {emailAttachments.length > 0 && (
-                <div className="space-y-1">
-                  {emailAttachments.map((attachment, index) => (
-                    <div key={`${attachment.filename}-${index}`} className="flex items-center justify-between rounded border px-2 py-1 text-xs">
-                      <span className="inline-flex items-center gap-1">
-                        <Paperclip className="size-3" />
-                        {attachment.filename}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEmailAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
-                        }
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {emailSendError && <p className="text-sm text-red-600">{emailSendError}</p>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => closeModal("rejected")} disabled={isEmailSending}>
-              Cancel
-            </Button>
-            <Button disabled={sendDisabled} onClick={() => void sendBulk("rejected")}>
+            <Button
+              disabled={sendDisabled}
+              onClick={() => {
+                if (emailAudience) void sendBulk(emailAudience);
+              }}
+            >
               {isEmailSending ? "Sending..." : "Send"}
             </Button>
           </DialogFooter>
