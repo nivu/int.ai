@@ -38,6 +38,7 @@ interface HiringPost {
     skill_match: number;
     experience_match: number;
     culture_match: number;
+    embedding_similarity?: number;
   };
   screening_threshold: number;
   status: "draft" | "published" | "closed" | "archived";
@@ -237,7 +238,8 @@ export default function JobDetailClient({
     experience_min: post.experience_min,
     experience_max: post.experience_max,
     education_requirements: post.education_requirements,
-    scoring_weights: post.scoring_weights,
+    // Jobs created before the fourth weight was exposed have no value for it.
+    scoring_weights: { embedding_similarity: 0.2, ...post.scoring_weights },
     screening_threshold: post.screening_threshold,
     max_questions: templateSettings?.max_questions ?? 10,
     max_duration_minutes: templateSettings?.max_duration_minutes ?? 45,
