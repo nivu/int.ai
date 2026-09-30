@@ -13,6 +13,7 @@ from typing import Any
 from openai import OpenAI
 
 from app.config import settings
+from app.services.usage import record_openai_chat
 
 logger = logging.getLogger("int.ai")
 
@@ -61,6 +62,7 @@ class QuestionGenerator:
             response_format={"type": "json_object"},
             temperature=temperature,
         )
+        record_openai_chat(response, "interview_question")
         return json.loads(response.choices[0].message.content)
 
     def _generate_anchored_project_question(self, project: dict) -> dict[str, Any]:

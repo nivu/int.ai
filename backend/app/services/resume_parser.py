@@ -12,6 +12,7 @@ import pdfplumber
 from openai import OpenAI
 
 from app.config import settings
+from app.services.usage import record_openai_chat
 
 logger = logging.getLogger("int.ai")
 
@@ -75,6 +76,7 @@ def parse_resume(raw_text: str) -> dict:
         temperature=0.1,
     )
     latency = time.time() - start
+    record_openai_chat(response, "parse_resume", latency_ms=latency * 1000)
 
     usage = response.usage
     logger.info(

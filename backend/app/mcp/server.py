@@ -281,10 +281,10 @@ async def generate_job_description(
     education_requirements: str | None = None,
 ) -> str:
     """Draft a job description with AI from the role details. Returns plain text to pass to create_job."""
-    _actor()
-    from app.api.jobs import GenerateDescriptionRequest, generate_description
+    org_id, _ = _actor()
+    from app.api.jobs import GenerateDescriptionRequest, _generate_description
 
-    result = await generate_description(
+    result = _generate_description(
         GenerateDescriptionRequest(
             title=title,
             department=department,
@@ -294,7 +294,8 @@ async def generate_job_description(
             experience_min=experience_min,
             experience_max=experience_max,
             education_requirements=education_requirements,
-        )
+        ),
+        org_id,
     )
     return result.description
 
