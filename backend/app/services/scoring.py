@@ -53,7 +53,7 @@ def _llm_json_request(system_prompt: str, user_content: str) -> dict:
 def score_embedding_similarity(resume_text: str, jd_text: str) -> float:
     """Embed resume and JD texts and return their cosine similarity (0.0-1.0)."""
     vec_resume = embed_text(resume_text)
-    vec_jd = embed_text(jd_text)
+    vec_jd = embed_text(jd_text, operation="embed_job_description")
     similarity = compute_similarity(vec_resume, vec_jd)
     # Clamp to [0, 1]
     return max(0.0, min(1.0, similarity))

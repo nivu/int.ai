@@ -75,8 +75,17 @@ Return only the description text, nothing else.
 
 
 @router.post("/generate-description", response_model=GenerateDescriptionResponse)
-async def generate_description(req: GenerateDescriptionRequest) -> GenerateDescriptionResponse:
+async def generate_description(
+    req: GenerateDescriptionRequest,
+    authorization: str = Header(...),
+) -> GenerateDescriptionResponse:
     """Use GPT-4o-mini to draft a job description from the supplied job metadata."""
+    return _generate_description(req, _resolve_admin_org(authorization))
+
+
+def _generate_description(
+    req: GenerateDescriptionRequest, org_id: str
+) -> GenerateDescriptionResponse:
     if not req.title:
         raise HTTPException(status_code=422, detail="title is required")
 
@@ -115,7 +124,7 @@ async def generate_description(req: GenerateDescriptionRequest) -> GenerateDescr
             max_tokens=600,
         )
         description = response.choices[0].message.content or ""
-        record_openai_chat(response, "generate_job_description")
+        record_openai_chat(response, "generate_job_description", org_id=org_id)
         logger.info("Generated job description for role=%s", req.title)
         return GenerateDescriptionResponse(description=description.strip())
     except Exception as exc:

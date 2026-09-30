@@ -23,7 +23,7 @@ _DIMENSIONS = 1536
 # Public API
 # ---------------------------------------------------------------------------
 
-def embed_text(text: str) -> list[float]:
+def embed_text(text: str, operation: str = "embed_resume") -> list[float]:
     """Encode text into a vector using OpenAI embeddings API."""
     client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
 
@@ -37,7 +37,7 @@ def embed_text(text: str) -> list[float]:
     )
 
     embedding = response.data[0].embedding
-    record_usage("openai", _MODEL, "embed_resume", input_tokens=response.usage.total_tokens)
+    record_usage("openai", _MODEL, operation, input_tokens=response.usage.total_tokens)
     logger.info(
         "embed_text: model=%s dimensions=%d tokens=%d",
         _MODEL,
