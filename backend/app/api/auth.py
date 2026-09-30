@@ -46,3 +46,38 @@ def _resolve_admin_org(authorization: str = Header(...)) -> str:
         raise HTTPException(status_code=403, detail="Team member is not active")
 
     return member["org_id"]
+
+
+def _resolve_admin_member(authorization: str = Header(...)) -> dict:
+    """Like ``_resolve_admin_org`` but returns the full team_members row
+    (``id``, ``org_id``, ``role``, ``status``) for callers that need to record
+    who acted, e.g. API key issuance.
+    """
+    from app.services.supabase import supabase as sb
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        user_resp = sb.auth.get_user(token)
+        user_id = str(user_resp.user.id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    member_resp = (
+        sb.table("team_members")
+        .select("id, org_id, role, status")
+        .eq("user_id", user_id)
+        .in_("role", ["admin", "recruiter", "hiring_manager"])
+        .maybe_single()
+        .execute()
+    )
+    if not member_resp.data:
+        raise HTTPException(status_code=403, detail="Not a team member")
+
+    member = member_resp.data
+    if member.get("status") != "active":
+        raise HTTPException(status_code=403, detail="Team member is not active")
+
+    return member

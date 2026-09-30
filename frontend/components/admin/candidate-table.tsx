@@ -290,7 +290,9 @@ function buildColumns(
         if (exp && exp.length > 0) return exp[0].role ?? "";
         return "";
       },
-      header: "Current Role",
+      header: ({ column }) => (
+        <SortableHeader label="Current Role" column={column} />
+      ),
       cell: ({ getValue }) => getValue<string>() || "—",
     },
     // Experience (latest company + duration)
@@ -313,7 +315,12 @@ function buildColumns(
     {
       id: "skills",
       accessorFn: (row) => row.resume_data?.parsed_skills ?? [],
-      header: "Key Skills",
+      header: ({ column }) => (
+        <SortableHeader label="Key Skills" column={column} />
+      ),
+      sortingFn: (a, b) =>
+        (a.getValue<string[]>("skills")?.length ?? 0) -
+        (b.getValue<string[]>("skills")?.length ?? 0),
       cell: ({ getValue }) => {
         const skills = getValue<string[]>();
         if (!skills || skills.length === 0) return "—";
@@ -334,7 +341,6 @@ function buildColumns(
           </div>
         );
       },
-      enableSorting: false,
     },
     // Embedding Score
     {
@@ -431,6 +437,23 @@ function buildColumns(
         );
       },
     },
+    // Applied (application created date)
+    {
+      id: "created_at",
+      accessorKey: "created_at",
+      header: ({ column }) => <SortableHeader label="Applied" column={column} />,
+      sortingFn: (a, b) =>
+        Date.parse(a.original.created_at) - Date.parse(b.original.created_at),
+      cell: ({ getValue }) => (
+        <span className="text-muted-foreground whitespace-nowrap">
+          {new Date(getValue<string>()).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </span>
+      ),
+    },
     // Score Details / Re-screen action
     {
       id: "score_details",
@@ -470,7 +493,7 @@ export default function CandidateTable({
   hiringPostId,
 }: CandidateTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "overall_score", desc: true },
+    { id: "created_at", desc: true },
   ]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");

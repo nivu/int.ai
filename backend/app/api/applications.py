@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger("int.ai")
 
@@ -27,6 +27,7 @@ class SubmitApplicationRequest(BaseModel):
     current_company: str | None = None
     years_experience: int | None = None
     location: str | None = None
+    linkedin_url: str = Field(min_length=1)
     photo_url: str | None = None
     resume_url: str
     resume_filename: str = "resume"
@@ -67,6 +68,7 @@ async def submit_application(body: SubmitApplicationRequest) -> SubmitApplicatio
             candidate_payload["years_experience"] = body.years_experience
         if body.location:
             candidate_payload["location"] = body.location.strip()
+        candidate_payload["linkedin_url"] = body.linkedin_url.strip()
         if body.photo_url:
             candidate_payload["photo_url"] = body.photo_url
 

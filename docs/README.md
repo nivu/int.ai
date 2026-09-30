@@ -20,6 +20,7 @@ Specifications live in [`../specs/`](../specs/), not here. See
 | [guides/interview-testing.md](guides/interview-testing.md) | End-to-end testing of the interview system |
 | [guides/tokens-and-expiry.md](guides/tokens-and-expiry.md) | Every token type in the platform and its lifetime |
 | [guides/timer-validation-tests.md](guides/timer-validation-tests.md) | Running the interview timer logic test suite |
+| [guides/mcp-server.md](guides/mcp-server.md) | Hosted MCP server at `/mcp`: API keys, connecting Claude, available tools |
 
 ## Operations
 

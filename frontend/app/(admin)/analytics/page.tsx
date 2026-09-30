@@ -354,6 +354,7 @@ export default function AnalyticsPage() {
   }, [supabase, selectedJobId, startDate, endDate, orgId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; state is set after await
     fetchAnalytics();
   }, [fetchAnalytics]);
 
