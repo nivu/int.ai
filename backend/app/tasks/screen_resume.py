@@ -16,6 +16,7 @@ from app.services.scoring import (
     score_embedding_similarity,
 )
 from app.services.supabase import get_record, insert_record, supabase, update_record
+from app.services.usage import reset_usage_context, set_usage_context
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -37,10 +38,16 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         9. Store embedding
         10. Auto-advance logic
     """
+    usage_token = None
     try:
         # 1. Fetch records
         application = get_record("applications", application_id)
         hiring_post = get_record("hiring_posts", hiring_post_id)
+        usage_token = set_usage_context(
+            org_id=hiring_post.get("org_id"),
+            hiring_post_id=hiring_post_id,
+            application_id=application_id,
+        )
 
         resume_path: str = application["resume_url"]
         job_title: str = hiring_post.get("title", "")
@@ -242,3 +249,6 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         except Exception:
             logger.exception("Failed to reset application status for %s", application_id)
         raise
+    finally:
+        if usage_token is not None:
+            reset_usage_context(usage_token)

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.api.auth import _resolve_admin_org
 from app.config import settings
 from app.services.supabase import supabase
+from app.services.usage import record_openai_chat
 
 logger = logging.getLogger("int.ai")
 
@@ -114,6 +115,7 @@ async def generate_description(req: GenerateDescriptionRequest) -> GenerateDescr
             max_tokens=600,
         )
         description = response.choices[0].message.content or ""
+        record_openai_chat(response, "generate_job_description")
         logger.info("Generated job description for role=%s", req.title)
         return GenerateDescriptionResponse(description=description.strip())
     except Exception as exc:

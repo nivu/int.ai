@@ -8,6 +8,7 @@ from app.config import settings
 from app.interview.evaluator import evaluate_interview
 from app.services import email as email_service
 from app.services.supabase import get_record, update_record
+from app.services.usage import reset_usage_context, set_usage_context
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
@@ -26,6 +27,18 @@ def evaluate_interview_task(self, session_id: str) -> dict:
     # Fetch session early so we can always send an email even on evaluation failure
     session_record = get_record("interview_sessions", session_id)
     application_id = session_record.get("application_id")
+
+    # Tag the o1-mini evaluation calls with org / job / application / session.
+    usage_ids: dict = {"interview_session_id": session_id, "application_id": application_id}
+    try:
+        if application_id:
+            app_row = get_record("applications", application_id)
+            usage_ids["hiring_post_id"] = app_row.get("hiring_post_id")
+            if usage_ids["hiring_post_id"]:
+                usage_ids["org_id"] = get_record("hiring_posts", usage_ids["hiring_post_id"]).get("org_id")
+    except Exception:
+        logger.exception("Could not resolve usage context for session=%s", session_id)
+    usage_token = set_usage_context(**usage_ids)
 
     recommendation = "borderline"  # safe fallback if evaluation fails
     report_id = None
@@ -95,6 +108,7 @@ def evaluate_interview_task(self, session_id: str) -> dict:
         except Exception:
             logger.exception("Failed to send post-interview email for application=%s", application_id)
 
+    reset_usage_context(usage_token)
     return {
         "session_id": session_id,
         "report_id": report_id,

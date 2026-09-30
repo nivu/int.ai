@@ -22,6 +22,7 @@ from tenacity import (
 )
 
 from app.config import settings
+from app.services.usage import record_openai_chat, record_usage
 
 logger = logging.getLogger("int.ai")
 
@@ -163,7 +164,8 @@ def _call_llm_with_retry(
 ) -> dict:
     """Call OpenAI with retry logic for rate limit errors."""
     client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
-    
+
+    started = time.monotonic()
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -175,13 +177,15 @@ def _call_llm_with_retry(
             temperature=temperature,
             timeout=5.0,  # 5-second timeout to meet 2-second target with retries
         )
+        record_openai_chat(response, "interview_question", latency_ms=(time.monotonic() - started) * 1000)
         import json
         return json.loads(response.choices[0].message.content)
     except RateLimitError:
         logger.warning("OpenAI rate limit hit, retrying...")
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("OpenAI call failed")
+        record_usage("openai", "gpt-4o-mini", "interview_question", status="error", error=str(exc))
         raise
 
 

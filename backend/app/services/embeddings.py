@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from app.config import settings
 from app.services.supabase import update_record
+from app.services.usage import record_usage
 
 logger = logging.getLogger("int.ai")
 
@@ -36,6 +37,7 @@ def embed_text(text: str) -> list[float]:
     )
 
     embedding = response.data[0].embedding
+    record_usage("openai", _MODEL, "embed_resume", input_tokens=response.usage.total_tokens)
     logger.info(
         "embed_text: model=%s dimensions=%d tokens=%d",
         _MODEL,

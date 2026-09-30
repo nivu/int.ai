@@ -241,6 +241,33 @@ interview_in_progress → interviewed → shortlisted → rejected → archived.
 | share_expires_at | timestamptz | | Default 7 days |
 | created_at | timestamptz | DEFAULT now() | |
 
+### AiUsage
+
+One row per billable AI or voice call. Written only by the backend
+(`app/services/usage.py`); the browser never touches it. Added by migration
+026.
+
+| Field | Type | Constraints | Notes |
+|-------|------|-------------|-------|
+| id | uuid | PK | |
+| org_id | uuid | FK → Organization | Null for calls with no org context |
+| hiring_post_id | uuid | FK → HiringPost | |
+| application_id | uuid | FK → Application | |
+| interview_session_id | uuid | FK → InterviewSession | |
+| provider | text | NOT NULL | `openai`, `deepgram`, `livekit` |
+| model | text | NOT NULL | e.g. `gpt-4o-mini`, `o1-mini`, `nova-2`, `aura-luna-en`, `agent-session` |
+| operation | text | NOT NULL | `parse_resume`, `score_resume`, `embed_resume`, `generate_job_description`, `interview_question`, `interview_llm`, `interview_stt`, `interview_tts`, `interview_session`, `interview_summary`, `evaluate:<step>` |
+| input_tokens / output_tokens | integer | DEFAULT 0 | LLM and embedding tokens |
+| duration_seconds | real | DEFAULT 0 | Audio seconds (STT/TTS) or session seconds (LiveKit) |
+| characters | integer | DEFAULT 0 | TTS characters |
+| cost_usd | numeric(12,6) | DEFAULT 0 | Estimated at write time from the price table in `usage.py` |
+| latency_ms | real | | |
+| status | text | DEFAULT 'success' | `success` or `error` |
+| error | text | | First 500 chars of the failure |
+| created_at | timestamptz | DEFAULT now() | |
+
+**RLS**: Enabled with no policies (service role only).
+
 ## Indexes
 
 - `application(hiring_post_id, overall_score DESC)` — candidate ranking
