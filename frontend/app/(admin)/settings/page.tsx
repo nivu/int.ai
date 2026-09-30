@@ -823,6 +823,15 @@ function formatDateTime(iso: string | null) {
   });
 }
 
+async function fetchApiKeys(): Promise<ApiKeyRow[]> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await backendFetch<{ items: ApiKeyRow[] }>("/api/v1/api-keys", {
+    token: session?.access_token,
+  });
+  return res.items ?? [];
+}
+
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -858,22 +867,15 @@ function ApiKeysTab() {
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRow | null>(null);
   const [revoking, setRevoking] = useState(false);
 
-  const loadKeys = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await backendFetch<{ items: ApiKeyRow[] }>("/api/v1/api-keys", {
-        token: session?.access_token,
-      });
-      setKeys(res.items ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load API keys.");
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // setState only inside promise callbacks so this can run from an effect.
+  const loadKeys = useCallback(
+    () =>
+      fetchApiKeys()
+        .then((items) => setKeys(items))
+        .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load API keys."))
+        .finally(() => setLoading(false)),
+    [],
+  );
 
   useEffect(() => {
     void loadKeys();

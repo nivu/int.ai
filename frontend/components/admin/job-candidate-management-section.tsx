@@ -113,6 +113,20 @@ const STATUS_LABELS: Record<CandidateStatus, string> = {
   interview_rejected: "Interview Rejected",
 };
 
+async function fetchJobCandidates(jobId: string): Promise<CandidateRow[]> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  const response = await backendFetch<JobCandidatesResponse>(`/api/v1/jobs/${jobId}/candidates`, {
+    token: session?.access_token,
+  });
+  return response.items ?? [];
+}
+
+function describeLoadError(error: unknown): string {
+  if (error instanceof BackendError) return error.detail || error.message;
+  return "Failed to load candidates for this job.";
+}
+
 function scorePercent(value: number | null): string {
   if (value == null) return "—";
   return `${Math.round(value * 100)}%`;
@@ -196,36 +210,30 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
     return () => clearTimeout(id);
   }, [searchQuery]);
 
-  async function loadCandidates() {
+  // Data fetching keeps setState inside promise callbacks only, so it can run
+  // from an effect (react-hooks/set-state-in-effect).
+  function runLoad() {
+    return fetchJobCandidates(jobId)
+      .then((items) => {
+        setSourceCandidates(items);
+        setCandidatesLoadError(null);
+      })
+      .catch((error: unknown) => setCandidatesLoadError(describeLoadError(error)))
+      .finally(() => setIsCandidatesLoading(false));
+  }
+
+  function retryLoad() {
     setIsCandidatesLoading(true);
     setCandidatesLoadError(null);
     setSourceCandidates([]);
     setSelectedIds(new Set());
-    try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await backendFetch<JobCandidatesResponse>(`/api/v1/jobs/${jobId}/candidates`, {
-        token: session?.access_token,
-      });
-      setSourceCandidates(response.items ?? []);
-    } catch (error) {
-      if (error instanceof BackendError) {
-        setCandidatesLoadError(error.detail || error.message);
-      } else {
-        setCandidatesLoadError("Failed to load candidates for this job.");
-      }
-    } finally {
-      setIsCandidatesLoading(false);
-    }
+    void runLoad();
   }
 
   useEffect(() => {
-    void loadCandidates();
+    void runLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearchQuery, statusFilter]);
 
   const filteredCandidates = useMemo(() => {
     const query = debouncedSearchQuery.trim().toLowerCase();
@@ -410,7 +418,10 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
           <div className="w-full lg:max-w-sm">
             <Input
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setPage(1);
+              }}
               placeholder="Search name, email, or key skills..."
               disabled={isCandidatesLoading}
             />
@@ -418,7 +429,10 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
           <div className="flex flex-wrap items-center gap-2">
             <Select
               value={statusFilter}
-              onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+              onValueChange={(value) => {
+                setStatusFilter(value as StatusFilter);
+                setPage(1);
+              }}
               disabled={isCandidatesLoading}
             >
               <SelectTrigger className="w-[190px]">
@@ -463,7 +477,7 @@ export default function JobCandidateManagementSection({ jobId }: { jobId: string
         {candidatesLoadError && !isCandidatesLoading && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             <p>{candidatesLoadError}</p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadCandidates()}>
+            <Button variant="outline" size="sm" className="mt-2" onClick={retryLoad}>
               Retry
             </Button>
           </div>

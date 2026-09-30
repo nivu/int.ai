@@ -115,6 +115,7 @@ export default function ComparePage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; state is set after await
     fetchCandidates(candidateIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsParam]);
