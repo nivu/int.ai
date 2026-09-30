@@ -114,6 +114,11 @@ another candidate's rows are not returned.
   site (`controller.finish()`).
 - **FR-013**: Q&A scoring MUST be idempotent — rows already carrying scores are
   skipped, so a retry cannot double-score or double-charge.
+- **FR-014**: API keys (`api_keys`) MUST resolve to exactly one active team
+  member and MUST inherit that member's `org_id` for every MCP tool call; a
+  tool MUST refuse rows outside that org as not found. Keys are stored as
+  SHA-256 hashes, are revocable, and the table carries RLS with no policies so
+  only the service-role backend can touch it.
 
 ### Key Entities
 
@@ -127,6 +132,8 @@ another candidate's rows are not returned.
 - **interview_sessions / interview_qa / interview_reports** — reached via
   `application_id`; reports additionally support token-based external sharing.
 - **invite_tokens** — org-owned; recipient self-reads by matching email.
+- **api_keys** — `(org_id, team_member_id, key_hash, revoked_at)`; backend-only
+  credential store for the hosted MCP endpoint.
 
 ## Success Criteria *(mandatory)*
 

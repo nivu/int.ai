@@ -42,8 +42,10 @@ Closed → Archived) and the shareable link resolves correctly.
 ### User Story 2 - Candidate Applies to a Hiring Post (Priority: P1)
 
 A candidate opens the shareable application link and fills out a minimal
-form: full name, email, phone, current role/company, years of experience,
-location. They upload a profile photo and a resume (PDF or DOCX, max 5MB).
+form: full name, email, LinkedIn profile URL, phone, current role/company,
+years of experience, location. Full name, email, LinkedIn profile URL and
+the resume are required. They upload a profile photo and a resume (PDF or
+DOCX, max 5MB).
 On submission, they receive a confirmation email with a link to their
 candidate portal.
 
@@ -67,6 +69,9 @@ portal link.
 3. **Given** a candidate uploads a file larger than 5MB or an unsupported
    format, **When** they attempt to submit, **Then** a clear error
    message is shown and the form is not submitted.
+4. **Given** a candidate leaves the LinkedIn profile URL empty, **When**
+   they attempt to submit, **Then** the submit control stays disabled and
+   the backend rejects the submission if it is bypassed.
 
 ---
 
@@ -286,7 +291,11 @@ clone it, edit the clone, and assign it to a hiring post.
 Admins manage their team by inviting recruiters and hiring managers,
 assigning roles (admin, recruiter, hiring manager), and configuring
 organization-wide settings: email templates, default thresholds, scoring
-weights, and data retention policies.
+weights, data retention policies, and API keys for assistant access (see
+User Story 11). Team members are identified by their login email, which
+lives in Supabase Auth; inviting an address that has no login creates one
+(the invitee signs in with the email-code option), then records the
+membership and sends the invitation email.
 
 **Why this priority**: Team management is essential for multi-user
 organizations but a single admin can operate the platform without it.
@@ -303,6 +312,34 @@ jobs, and verify the recruiter sees only their assigned jobs.
 2. **Given** a hiring manager with view-only access, **When** they open a
    candidate report via a shared link, **Then** they can view all report
    details but cannot modify candidate status or add notes.
+
+---
+
+### User Story 11 - Assistant Access via MCP (Priority: P3)
+
+A team member creates an API key in Settings → API Keys, follows the
+on-screen steps to connect Claude Code or Claude Desktop to the hosted MCP
+endpoint, and then asks the assistant to list jobs, create or publish a
+job, review candidates, or report where each job's pipeline stands. The
+assistant sees and changes only that member's organisation.
+
+**Why this priority**: A convenience layer over existing capabilities;
+every action remains available in the web UI.
+
+**Independent Test**: Create a key, connect Claude Code with the shown
+command, ask for the published jobs and their shortlisted candidates, and
+get the same answer the Jobs and Candidates screens show.
+
+**Acceptance Scenarios**:
+
+1. **Given** a valid key, **When** a client calls the MCP endpoint,
+   **Then** it can list the ten tools and every tool answers only with
+   data from the key owner's organisation.
+2. **Given** no key, a bogus key, or a revoked key, **When** a client calls
+   the MCP endpoint, **Then** it receives 401.
+3. **Given** a key for organisation A, **When** a tool is asked for a job
+   belonging to organisation B by ID, **Then** the tool reports it as not
+   found.
 
 ---
 
@@ -609,14 +646,22 @@ Section layout (top to bottom):
    - Left: debounced search input
    - Right: status filter dropdown, bulk shortlisted email button, bulk
      interview-rejected email button
-3. Candidate table:
+3. Selection bar (rendered only while at least one row is checked):
+   - `N selected`, `Send Email to Selected`, `Open LinkedIn Profiles (k)`,
+     `Clear` — see *Row Selection and Selected-Candidate Actions*.
+4. Candidate table:
    - Columns in exact order:
-     `Name | Email | Job | Key Skills | Overall | Status`
-4. Table footer:
+     `[checkbox] | Name | Email | Key Skills | Overall | Status | Applied | LinkedIn | Actions`
+   - There is no Job column: the table lives on one job's page.
+   - `Applied` is the application's creation date. `LinkedIn` is a link
+     that opens the candidate's profile in a new tab, or a dash if unknown.
+   - `Actions` holds a `View` button that opens the same candidate detail
+     page reachable from the Candidates screen.
+5. Table footer:
    - pagination controls and page size selector
-5. Modal layer (conditionally rendered):
-   - `Email Shortlisted Candidates` modal
-   - `Email Interview Rejected Candidates` modal
+6. Modal layer (conditionally rendered):
+   - One email modal, parameterised by audience: shortlisted, rejected,
+     or the currently selected rows.
 
 Responsive behavior:
 - Horizontal overflow is handled gracefully; table remains usable on narrow
@@ -629,11 +674,28 @@ Responsive behavior:
 - Pagination state persists during ordinary page navigation.
 - Pagination resets to page 1 on search query change.
 - Pagination resets to page 1 on status filter change.
+- Every column header sorts: first click ascending, second descending.
+  Empty values always sort last. Key Skills sorts by count; LinkedIn sorts
+  by presence. Default order is `Applied`, newest first.
+- Sorting applies to the full filtered set before pagination.
 - Loading state blocks controls and shows loading indicator.
 - During reloads, stale rows are not displayed.
 - Empty states are distinct:
   - No candidates for this job at all.
   - Candidates exist but none match current search/filter.
+
+### Row Selection and Selected-Candidate Actions
+
+- Each row has a checkbox; the header checkbox selects or clears every row
+  on the current page and shows an indeterminate state for partial pages.
+- Selection is keyed by application ID and survives paging, sorting and
+  filtering within one load. It is cleared when the candidate list reloads.
+- `Send Email to Selected` opens the email modal with the checked rows as
+  recipients, regardless of their status.
+- `Open LinkedIn Profiles (k)` opens one new tab per checked candidate that
+  has a LinkedIn URL; `k` is that count and the button is disabled at 0.
+  Browsers may require the user to allow pop-ups for the site.
+- `Clear` empties the selection.
 
 ### Search Behavior
 
@@ -731,6 +793,7 @@ Both modals include:
 - Recipient subsets:
   - shortlisted flow: status == `Shortlisted`
   - rejected flow: status == `Interview Rejected`
+  - selected flow: the rows currently checked, any status
 
 ### Email Delivery and Transport Requirement
 
@@ -933,7 +996,8 @@ Prohibitions:
   for each published hiring post.
 - **FR-004**: System MUST accept candidate applications with basic details,
   profile photo, and resume upload (PDF/DOCX, max 5MB) without requiring
-  login.
+  login. Full name, email, LinkedIn profile URL and resume are required;
+  the backend MUST reject a submission missing any of them.
 - **FR-005**: System MUST send a confirmation email to candidates upon
   successful application.
 - **FR-006**: System MUST parse uploaded resumes into structured markdown
@@ -964,7 +1028,9 @@ Prohibitions:
 - **FR-017**: System MUST produce an interview report with overall grade,
   per-question breakdown, transcript, audio playback, and AI summary.
 - **FR-018**: System MUST display a standardized candidate table with
-  sorting, filtering, searching, and bulk actions.
+  sorting, filtering, searching, and bulk actions. Every admin list table
+  (jobs, candidates, templates, team members, API keys) MUST sort by any
+  column and MUST open sorted by creation date, newest first.
 - **FR-019**: System MUST support side-by-side comparison of 2-4
   candidates with radar charts, skill overlap, and experience timelines.
 - **FR-020**: System MUST provide analytics with funnel visualization,
@@ -985,15 +1051,31 @@ Prohibitions:
   weights, and must-ask topics.
 - **FR-027**: System MUST provide real-time candidate status tracking on
   the candidate portal with email notifications at each status change.
+- **FR-028**: System MUST expose hiring operations to AI assistants through
+  a hosted MCP endpoint (`/mcp` on the backend) with tools to list, get,
+  create and change the status of jobs; draft job descriptions; list, get
+  and review (shortlist/reject) candidates; and report pipeline and
+  screening status.
+- **FR-029**: MCP access MUST be authenticated with per-member API keys
+  issued and revoked from Settings → API Keys. A key acts as the member who
+  created it, inside that member's organisation only; the raw key is shown
+  once and only its hash is stored; revocation takes effect immediately.
+- **FR-030**: MCP tools MUST NOT send email. Reviewing a candidate over MCP
+  changes status only.
+- **FR-031**: Team invitations MUST create the invitee's login when none
+  exists, record the membership with status `invited`, and send the
+  invitation email; the Settings → Team list MUST show each member's login
+  email resolved server-side.
 
 ### Key Entities
 
 - **Hiring Post**: A job listing with details, screening config, interview
   config, publish schedule, and state (Draft/Published/Closed/Archived).
   Owned by an organization, created by an admin.
-- **Candidate**: A person who applies to a hiring post. Has basic details,
-  profile photo, parsed resume, scores, interview data, and status.
-  Linked to one or more hiring posts via applications.
+- **Candidate**: A person who applies to a hiring post. Has basic details
+  including a LinkedIn profile URL, profile photo, parsed resume, scores,
+  interview data, and status. Linked to one or more hiring posts via
+  applications.
 - **Application**: Links a candidate to a hiring post. Contains the
   uploaded resume, parsed data, scores, and status progression.
 - **Interview Session**: A voice conversation between a candidate and the
@@ -1005,7 +1087,11 @@ Prohibitions:
 - **Organization**: The hiring company. Contains team members, settings,
   email templates, and default configurations.
 - **Team Member**: A user within an organization with a role (admin,
-  recruiter, hiring manager) and job assignments.
+  recruiter, hiring manager) and job assignments. Identified by the login
+  email held in Supabase Auth; no separate name or email is stored.
+- **API Key**: A long-lived credential owned by one team member, used by
+  MCP clients. Stores a name, a display prefix, the key hash, creation,
+  last-used and revocation timestamps.
 - **Interview Report**: The evaluated output of an interview session.
   Contains per-answer scores, overall grade, AI summary, and
   recommendation.
