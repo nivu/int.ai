@@ -45,17 +45,25 @@ import {
 
 interface TeamMember {
   id: string;
-  email: string;
-  full_name: string | null;
+  email: string | null;
   role: "admin" | "recruiter" | "hiring_manager";
   status: "active" | "invited" | "deactivated";
   created_at: string;
 }
 
-type MemberSortKey = "name" | "role" | "status" | "created_at";
+type MemberSortKey = "email" | "role" | "status" | "created_at";
+
+async function fetchTeamMembers(): Promise<TeamMember[]> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await backendFetch<{ items: TeamMember[] }>("/api/v1/team", {
+    token: session?.access_token,
+  });
+  return res.items ?? [];
+}
 
 const MEMBER_SORT_ACCESSORS: SortAccessors<TeamMember, MemberSortKey> = {
-  name: (m) => m.full_name || m.email,
+  email: (m) => m.email,
   role: (m) => m.role,
   status: (m) => m.status,
   created_at: (m) => Date.parse(m.created_at),
@@ -139,72 +147,46 @@ function TeamTab() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<TeamMember["role"]>("recruiter");
   const [inviting, setInviting] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<TeamMember | null>(
     null
   );
 
-  // Fetch members
+  // Fetch members through the backend, which resolves each member's email
+  // from Supabase Auth (team_members itself stores only user_id).
   useEffect(() => {
-    async function load() {
-      let query = supabase
-        .from("team_members")
-        .select("id, email, full_name, role, status, created_at")
-        .order("created_at", { ascending: false });
-
-      if (orgId) {
-        query = query.eq("org_id", orgId);
-      }
-
-      const { data } = await query;
-      setMembers((data as TeamMember[]) ?? []);
-      setLoading(false);
-    }
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchTeamMembers()
+      .then((items) => setMembers(items))
+      .catch((err: unknown) =>
+        setLoadError(err instanceof Error ? err.message : "Failed to load team members.")
+      )
+      .finally(() => setLoading(false));
   }, [orgId]);
 
   // Invite member
   const handleInvite = useCallback(async () => {
     if (!inviteEmail.trim() || !orgId) return;
     setInviting(true);
+    setInviteError(null);
     try {
-      const { data: inserted, error } = await supabase
-        .from("team_members")
-        .insert({
-          email: inviteEmail.trim(),
-          role: inviteRole,
-          status: "invited",
-          org_id: orgId,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Send invitation email via backend
       const {
         data: { session },
       } = await supabase.auth.getSession();
-
-      if (session?.access_token) {
-        try {
-          await backendFetch("/api/v1/invitations/send", {
-            method: "POST",
-            token: session.access_token,
-            body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-          });
-        } catch {
-          // Email send may fail but member is still created
-          console.warn("Invitation email could not be sent.");
-        }
-      }
-
-      setMembers((prev) => [...prev, inserted as TeamMember]);
+      const res = await backendFetch<{ member: TeamMember; email_sent: boolean }>("/api/v1/team/invite", {
+        method: "POST",
+        token: session?.access_token,
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+      });
+      setMembers((prev) => [res.member, ...prev]);
       setInviteEmail("");
       setInviteRole("recruiter");
       setInviteOpen(false);
+      if (!res.email_sent) {
+        setLoadError("Member added, but the invitation email could not be sent.");
+      }
     } catch (err) {
-      console.error("Failed to invite member:", err);
+      setInviteError(err instanceof Error ? err.message : "Failed to invite member.");
     } finally {
       setInviting(false);
     }
@@ -267,6 +249,10 @@ function TeamTab() {
         <Button onClick={() => setInviteOpen(true)}>Invite Member</Button>
       </div>
 
+      {loadError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loadError}</div>
+      )}
+
       <Card>
         <CardContent className="pt-4">
           {loading ? (
@@ -283,7 +269,7 @@ function TeamTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <SortableTh label="Name / Email" sortKey="name" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
+                    <SortableTh label="Email" sortKey="email" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
                     <SortableTh label="Role" sortKey="role" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
                     <SortableTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
                     <SortableTh label="Added" sortKey="created_at" sort={sort} onSort={toggleSort} className="pb-2 pr-4" />
@@ -293,16 +279,7 @@ function TeamTab() {
                 <tbody>
                   {sortedMembers.map((member) => (
                     <tr key={member.id} className="border-b last:border-0">
-                      <td className="py-3 pr-4">
-                        <p className="font-medium">
-                          {member.full_name || member.email}
-                        </p>
-                        {member.full_name && (
-                          <p className="text-xs text-muted-foreground">
-                            {member.email}
-                          </p>
-                        )}
-                      </td>
+                      <td className="py-3 pr-4 font-medium">{member.email ?? "\u2014"}</td>
                       <td className="py-3 pr-4">
                         {member.status === "deactivated" ? (
                           <Badge variant="outline">{member.role}</Badge>
@@ -400,6 +377,7 @@ function TeamTab() {
                 </SelectContent>
               </Select>
             </div>
+            {inviteError && <p className="text-sm text-red-600">{inviteError}</p>}
           </div>
           <DialogFooter>
             <Button
@@ -429,7 +407,7 @@ function TeamTab() {
             <DialogDescription>
               Are you sure you want to deactivate{" "}
               <span className="font-medium">
-                {deactivateTarget?.full_name || deactivateTarget?.email}
+                {deactivateTarget?.email}
               </span>
               ? They will lose access to the platform.
             </DialogDescription>

@@ -1,6 +1,11 @@
 [build]
   command = "pnpm build"
   publish = ".next"
+  # Always build production (the prod branch). Netlify's default change check
+  # compares against the last build of *any* branch, so a prod merge whose tree
+  # matches the main build seconds earlier was cancelled as "no changes".
+  # Exit 1 = build, exit 0 = skip (Netlify ignore semantics).
+  ignore = "if [ \"$CONTEXT\" = \"production\" ]; then exit 1; fi; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- ."
 
 [build.environment]
   NODE_VERSION = "20"
