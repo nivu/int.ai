@@ -36,7 +36,7 @@ backend role."*
 |---|---|
 | `list_jobs` | Jobs in the org, optionally filtered by status |
 | `get_job` | One job with its interview template settings and application counts |
-| `create_job` | Create a job (and its interview template). Draft by default; `publish=true` publishes |
+| `create_job` | Create a job (and its interview template). Draft by default; `publish=true` publishes. Four relative scoring weights (skill, experience, culture, similarity), each 0–1 |
 | `update_job_status` | Move a job to `published`, `closed`, or `archived` |
 | `generate_job_description` | AI-written description from title, skills, experience |
 | `list_candidates` | Applications with scores, status, LinkedIn, applied date. Filter by job, status, search |

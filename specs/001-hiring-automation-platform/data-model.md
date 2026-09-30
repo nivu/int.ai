@@ -85,7 +85,7 @@ reads or writes this table (MCP auth in `app/mcp/auth.py`, management in
 | experience_min | integer | | Years |
 | experience_max | integer | | Years |
 | education_requirements | text | | |
-| scoring_weights | jsonb | NOT NULL | {skill: 0.4, experience: 0.3, culture: 0.3} |
+| scoring_weights | jsonb | NOT NULL | `{skill_match, experience_match, culture_match, embedding_similarity}`; defaults 0.4 / 0.35 / 0.25 / 0.2. Relative weights: the overall score divides by their total, so they need not sum to 1. All four are shown on the job form |
 | screening_threshold | integer | DEFAULT 70 | Percentage for auto-advance |
 | interview_template_id | uuid | FK → InterviewTemplate | |
 | status | text | DEFAULT 'draft', CHECK (draft/published/closed/archived) | |

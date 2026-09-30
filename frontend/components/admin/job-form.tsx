@@ -42,6 +42,7 @@ export interface HiringPostFormData {
     skill_match: number;
     experience_match: number;
     culture_match: number;
+    embedding_similarity: number;
   };
   screening_threshold: number;
   // interview settings
@@ -78,6 +79,7 @@ const defaultFormData: HiringPostFormData = {
     skill_match: 0.4,
     experience_match: 0.35,
     culture_match: 0.25,
+    embedding_similarity: 0.2,
   },
   screening_threshold: 70,
   max_questions: 10,
@@ -338,16 +340,24 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Scoring weights */}
+          <p className="text-xs text-muted-foreground">
+            Weights are relative: each one is divided by their total, so they
+            do not need to add up to 100.
+          </p>
           {(
             [
-              ["skill_match", "Skill Match"],
-              ["experience_match", "Experience Match"],
-              ["culture_match", "Culture Match"],
+              ["skill_match", "Skill Match", "Required skills found in the resume"],
+              ["experience_match", "Experience Match", "Seniority and years of experience against the role"],
+              ["culture_match", "Culture Match", "Collaboration, communication and initiative signals"],
+              ["embedding_similarity", "Resume Similarity", "How closely the resume text matches the job description"],
             ] as const
-          ).map(([key, label]) => (
+          ).map(([key, label, hint]) => (
             <div key={key} className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label>{label}</Label>
+                <div>
+                  <Label>{label}</Label>
+                  <p className="text-xs text-muted-foreground">{hint}</p>
+                </div>
                 <span className="text-sm tabular-nums text-muted-foreground">
                   {(form.scoring_weights[key] * 100).toFixed(0)}%
                 </span>
