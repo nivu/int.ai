@@ -8,6 +8,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Briefcase, Users, ClipboardList, Star, Clock, TrendingUp } from "lucide-react";
+import { NeedsAttention } from "@/components/admin/needs-attention";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -248,6 +249,8 @@ export default async function DashboardPage() {
           );
         })}
       </div>
+
+      <NeedsAttention />
 
       {/* Recent applications */}
       <Card>

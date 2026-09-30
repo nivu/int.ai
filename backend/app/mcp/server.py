@@ -521,6 +521,18 @@ def get_pipeline_status(job_id: str | None = None) -> list[dict[str, Any]]:
 
 
 @mcp_server.tool()
+def get_usage(days: int = 30) -> dict[str, Any]:
+    """Estimated AI and voice spend (USD) for your organisation over the last `days` days (1-365, UTC),
+    with totals and breakdowns by day, provider, operation and job."""
+    org_id, _ = _actor()
+    if not 1 <= days <= 365:
+        raise ToolError("days must be between 1 and 365")
+    from app.services.usage_report import usage_summary
+
+    return usage_summary(org_id, days)
+
+
+@mcp_server.tool()
 def get_screening_status(application_id: str) -> dict[str, Any]:
     """Whether resume screening has finished for an application, with the result if so."""
     org_id, _ = _actor()

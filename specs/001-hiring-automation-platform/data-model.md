@@ -135,6 +135,8 @@ multiple applications across different hiring posts.
 | culture_match_score | real | | 0.0-1.0 |
 | overall_score | real | | Weighted aggregate 0.0-1.0 |
 | screening_completed_at | timestamptz | | |
+| screening_error | text | | Last screening failure message (migration 027); kept after a successful retry |
+| screening_failed_at | timestamptz | | When screening last failed (migration 027) |
 | interview_invited_at | timestamptz | | |
 | interview_deadline | timestamptz | | Window to complete interview |
 | decision | text | CHECK (advance/borderline/reject) | Final AI recommendation |

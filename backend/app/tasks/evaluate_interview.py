@@ -15,7 +15,7 @@ logger = logging.getLogger("int.ai")
 
 
 @celery_app.task(bind=True, name="evaluate_interview_task", max_retries=1)
-def evaluate_interview_task(self, session_id: str) -> dict:
+def evaluate_interview_task(self, session_id: str, send_candidate_email: bool = True) -> dict:
     """Run the full interview evaluation pipeline for a completed session.
 
     On success, updates the related application's ``decision`` field based on
@@ -78,7 +78,8 @@ def evaluate_interview_task(self, session_id: str) -> dict:
                 logger.exception("Failed to update session/application after evaluation error for %s", session_id)
 
         # Always send post-interview email so the candidate is never left waiting
-        if application_id:
+        # (skipped when re-running an evaluation; they were emailed the first time)
+        if application_id and send_candidate_email:
             try:
                 application = get_record("applications", application_id)
                 candidate = get_record("candidates", application["candidate_id"])
