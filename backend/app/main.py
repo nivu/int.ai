@@ -34,7 +34,24 @@ async def lifespan(app: FastAPI):
     # start its session manager here for the lifetime of the API process.
     async with mcp_server.session_manager.run():
         async with _celery_lifespan():
-            yield
+            async with _pipeline_alert_lifespan():
+                yield
+
+
+@asynccontextmanager
+async def _pipeline_alert_lifespan():
+    """Hourly email to org admins about failed or stuck screenings/evaluations."""
+    if not settings.PIPELINE_ALERTS_ENABLED:
+        yield
+        return
+
+    from app.services.pipeline_health import alert_loop
+
+    task = asyncio.create_task(alert_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
 
 
 @asynccontextmanager
@@ -147,6 +164,8 @@ def _mount_routers() -> None:
         ("app.api.reports", "router"),
         ("app.api.api_keys", "router"),
         ("app.api.team", "router"),
+        ("app.api.usage", "router"),
+        ("app.api.pipeline", "router"),
     ]
 
     for module_path, attr_name in router_modules:

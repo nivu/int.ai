@@ -560,6 +560,7 @@ async def evaluate(
         result = celery_app.send_task(
             "evaluate_interview_task",
             args=[body.session_id],
+            kwargs={} if body.send_candidate_email else {"send_candidate_email": False},
         )
     except Exception:
         logger.exception("Failed to enqueue evaluation for session %s", body.session_id)

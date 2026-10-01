@@ -242,12 +242,22 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             "status": "completed",
         }
 
-    except Exception:
+    except Exception as exc:
         logger.exception("Resume screening failed for application=%s", application_id)
+        # Reset to 'applied' so it can be retried, and record why it failed so
+        # the dashboard and pipeline alert can surface it (migration 027).
+        failure = {
+            "screening_error": f"{type(exc).__name__}: {exc}"[:500],
+            "screening_failed_at": datetime.now(UTC).isoformat(),
+        }
         try:
-            update_record("applications", application_id, {"status": "applied"})
+            update_record("applications", application_id, {"status": "applied", **failure})
         except Exception:
-            logger.exception("Failed to reset application status for %s", application_id)
+            logger.exception("Could not record screening failure for %s; resetting status only", application_id)
+            try:
+                update_record("applications", application_id, {"status": "applied"})
+            except Exception:
+                logger.exception("Failed to reset application status for %s", application_id)
         raise
     finally:
         if usage_token is not None:

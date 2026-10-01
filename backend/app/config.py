@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # Set RUN_EMBEDDED_WORKER=true to opt in.
     RUN_EMBEDDED_WORKER: bool = False
 
+    # Email each org's admins hourly about screenings or interview evaluations
+    # that failed or never ran (app/services/pipeline_health.py). Runs in the
+    # API process. Set PIPELINE_ALERTS_ENABLED=false on local machines that
+    # point at the production database, so admins are not emailed twice.
+    PIPELINE_ALERTS_ENABLED: bool = True
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

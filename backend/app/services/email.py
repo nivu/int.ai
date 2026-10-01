@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from typing import TypedDict
 
 import resend
@@ -447,4 +448,49 @@ def send_custom_email(
         ]
 
     response = resend.Emails.send(payload)
+    return response["id"]
+
+
+_ISSUE_LABELS = {
+    "screening_failed": "Resume screening failed",
+    "screening_stuck": "Resume never screened",
+    "evaluation_missing": "Interview not evaluated",
+}
+
+
+def send_pipeline_alert(to_emails: list[str], issues: list[dict]) -> str:
+    """Tell an org's admins about applications or interviews that silently failed."""
+    base_url = settings.FRONTEND_URL.rstrip("/")
+    rows = "".join(
+        "<tr>"
+        f'<td style="padding: 4px 12px 4px 0;">{html.escape(_ISSUE_LABELS.get(i["kind"], i["kind"]))}</td>'
+        f'<td style="padding: 4px 12px 4px 0;"><a href="{base_url}/candidates/{i["application_id"]}" '
+        f'style="color: #4f46e5;">{html.escape(i["candidate_name"])}</a></td>'
+        f'<td style="padding: 4px 12px 4px 0;">{html.escape(i["job_title"])}</td>'
+        f'<td style="padding: 4px 0; color: #555;">{html.escape(i["detail"])}</td>'
+        "</tr>"
+        for i in issues
+    )
+    count = len(issues)
+    subject = f"int.ai: {count} candidate{'s' if count != 1 else ''} need{'s' if count == 1 else ''} attention"
+    body = f"""\
+<html>
+<body style="font-family: sans-serif; color: #1a1a1a;">
+  <p>Something went wrong in the hiring pipeline for the candidates below.
+  Open the dashboard to retry them.</p>
+  <table style="border-collapse: collapse; font-size: 14px;">{rows}</table>
+  <p><a href="{base_url}/dashboard" style="color: #4f46e5;">Open the dashboard</a></p>
+  <br/>
+  <p>— int.ai</p>
+</body>
+</html>"""
+
+    response = resend.Emails.send(
+        {
+            "from": FROM_ADDRESS,
+            "to": to_emails,
+            "subject": subject,
+            "html": body,
+        }
+    )
     return response["id"]

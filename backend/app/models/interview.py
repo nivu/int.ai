@@ -55,6 +55,9 @@ class ReconnectResponse(BaseModel):
 
 class EvaluateRequest(BaseModel):
     session_id: str
+    # False when re-running a failed evaluation: the candidate already got
+    # their post-interview email the first time.
+    send_candidate_email: bool = True
 
 
 class EvaluateResponse(BaseModel):

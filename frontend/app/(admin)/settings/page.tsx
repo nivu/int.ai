@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useOrgId } from "@/components/admin/org-context";
 import { backendFetch } from "@/lib/api/backend";
+import { UsageTab } from "@/components/admin/usage-tab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,7 +103,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage your team, scoring defaults, data retention, and API keys
+          Manage your team, scoring defaults, data retention, API keys, and usage
         </p>
       </div>
 
@@ -112,6 +113,7 @@ export default function SettingsPage() {
           <TabsTrigger value="defaults">Defaults</TabsTrigger>
           <TabsTrigger value="retention">Data Retention</TabsTrigger>
           <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+          <TabsTrigger value="usage">Usage</TabsTrigger>
         </TabsList>
 
         <TabsContent value="team">
@@ -125,6 +127,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="api-keys">
           <ApiKeysTab />
+        </TabsContent>
+        <TabsContent value="usage">
+          <UsageTab />
         </TabsContent>
       </Tabs>
     </div>
