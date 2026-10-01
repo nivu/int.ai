@@ -292,7 +292,8 @@ Admins manage their team by inviting recruiters and hiring managers,
 assigning roles (admin, recruiter, hiring manager), and configuring
 organization-wide settings: email templates, default thresholds, scoring
 weights, data retention policies, and API keys for assistant access (see
-User Story 11). Team members are identified by their login email, which
+User Story 11). Settings → Usage shows the organisation's estimated AI and
+voice spend. Team members are identified by their login email, which
 lives in Supabase Auth; inviting an address that has no login creates one
 (the invitee signs in with the email-code option), then records the
 membership and sends the invitation email.
@@ -312,6 +313,16 @@ jobs, and verify the recruiter sees only their assigned jobs.
 2. **Given** a hiring manager with view-only access, **When** they open a
    candidate report via a shared link, **Then** they can view all report
    details but cannot modify candidate status or add notes.
+3. **Given** a team member on Settings → Usage, **When** they pick a period
+   (7, 30 or 90 days), **Then** they see the estimated total cost, call and
+   failed-call counts, cost per day, and breakdowns by operation, provider
+   and job, all limited to their organisation.
+4. **Given** a candidate whose resume screening crashed, or never started
+   within 15 minutes of applying, or whose finished interview has no
+   evaluation report after 15 minutes, **When** an admin opens the
+   dashboard, **Then** the candidate appears under "Needs attention" with
+   the reason and a Retry button, and the org's active admins receive one
+   email about it within the next hourly check.
 
 ---
 
@@ -333,7 +344,7 @@ get the same answer the Jobs and Candidates screens show.
 **Acceptance Scenarios**:
 
 1. **Given** a valid key, **When** a client calls the MCP endpoint,
-   **Then** it can list the ten tools and every tool answers only with
+   **Then** it can list the eleven tools and every tool answers only with
    data from the key owner's organisation.
 2. **Given** no key, a bogus key, or a revoked key, **When** a client calls
    the MCP endpoint, **Then** it receives 401.
@@ -1056,8 +1067,8 @@ Prohibitions:
 - **FR-028**: System MUST expose hiring operations to AI assistants through
   a hosted MCP endpoint (`/mcp` on the backend) with tools to list, get,
   create and change the status of jobs; draft job descriptions; list, get
-  and review (shortlist/reject) candidates; and report pipeline and
-  screening status.
+  and review (shortlist/reject) candidates; and report pipeline status,
+  screening status and estimated AI/voice usage.
 - **FR-029**: MCP access MUST be authenticated with per-member API keys
   issued and revoked from Settings → API Keys. A key acts as the member who
   created it, inside that member's organisation only; the raw key is shown
@@ -1068,6 +1079,17 @@ Prohibitions:
   exists, record the membership with status `invited`, and send the
   invitation email; the Settings → Team list MUST show each member's login
   email resolved server-side.
+- **FR-032**: System MUST record every billable AI and voice call (OpenAI,
+  Deepgram, LiveKit) with its estimated cost and the org, job, application
+  and interview it served, and MUST show the org's usage in Settings → Usage
+  over a selectable period. Recording MUST never break the call it observes.
+- **FR-033**: A failed resume screening MUST leave the application retryable
+  (status `applied`) and record the failure message and time. The admin
+  dashboard MUST list, with a Retry action, applications whose screening
+  failed, applications still unscreened 15 minutes after submission, and
+  interviews completed 15 minutes ago or more (within the last 30 days)
+  without an evaluation report. The org's active admins MUST be emailed
+  hourly about problems that newly appeared, each problem once.
 
 ### Key Entities
 
