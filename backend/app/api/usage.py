@@ -16,8 +16,8 @@ router = APIRouter(prefix="/usage", tags=["usage"])
 
 
 @router.get("")
-async def get_usage(
-    days: int = Query(30, ge=1, le=365),
+def get_usage(
+    days: int = Query(30, ge=1, le=90),
     authorization: str = Header(...),
 ) -> dict[str, Any]:
     """Estimated cost and call counts over the last ``days`` days (UTC)."""

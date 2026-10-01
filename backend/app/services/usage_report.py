@@ -39,6 +39,7 @@ def fetch_usage_rows(org_id: str, since: datetime) -> list[dict[str, Any]]:
             .eq("org_id", org_id)
             .gte("created_at", since.isoformat())
             .order("created_at")
+            .order("id")  # created_at is not unique; keeps pages from overlapping
             .range(start, start + _PAGE_SIZE - 1)
             .execute()
             .data

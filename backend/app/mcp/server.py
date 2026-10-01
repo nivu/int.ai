@@ -522,11 +522,11 @@ def get_pipeline_status(job_id: str | None = None) -> list[dict[str, Any]]:
 
 @mcp_server.tool()
 def get_usage(days: int = 30) -> dict[str, Any]:
-    """Estimated AI and voice spend (USD) for your organisation over the last `days` days (1-365, UTC),
+    """Estimated AI and voice spend (USD) for your organisation over the last `days` days (1-90, UTC),
     with totals and breakdowns by day, provider, operation and job."""
     org_id, _ = _actor()
-    if not 1 <= days <= 365:
-        raise ToolError("days must be between 1 and 365")
+    if not 1 <= days <= 90:
+        raise ToolError("days must be between 1 and 90")
     from app.services.usage_report import usage_summary
 
     return usage_summary(org_id, days)

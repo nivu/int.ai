@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.services.pipeline_health import STUCK_AFTER, classify, new_since
+from app.services.pipeline_health import STUCK_AFTER, classify, issue_key, unalerted
 from app.services.usage_report import summarize_usage
 
 NOW = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
@@ -66,21 +66,48 @@ def test_completed_interview_without_report():
     ]
 
 
-def test_new_since_reports_each_issue_once_across_windows():
-    failed = {"kind": "screening_failed", "occurred_at": _iso(NOW - timedelta(minutes=30))}
-    # Becomes visible STUCK_AFTER after submission: at NOW - 45m + 15m = NOW - 30m.
-    stuck = {"kind": "screening_stuck", "occurred_at": _iso(NOW - timedelta(minutes=45))}
-    issues = [failed, stuck]
+def test_session_ended_from_end_button_uses_started_at():
+    # end_session() marks the session completed without setting ended_at.
+    session = {
+        "id": "s1",
+        "application_id": "a1",
+        "started_at": _iso(NOW - timedelta(minutes=40)),
+        "ended_at": None,
+        "interview_reports": [],
+        "applications": {"hiring_post_id": "job-1", "candidates": {"full_name": "Ravi"}},
+    }
+    no_times = {**session, "id": "s2", "started_at": None}
+    issues = classify([], [session, no_times], TITLES, now=NOW)
+    assert [(i["session_id"], i["occurred_at"]) for i in issues] == [("s1", session["started_at"])]
 
-    first = new_since(issues, NOW - timedelta(hours=1), NOW)
-    second = new_since(issues, NOW, NOW + timedelta(hours=1))
-    assert first == [failed, stuck]
-    assert second == []
 
+def test_unalerted_skips_known_issues_and_realerts_repeat_failures():
+    stuck = {
+        "kind": "screening_stuck",
+        "application_id": "a1",
+        "session_id": None,
+        "occurred_at": "t0",
+    }
+    failed = {
+        "kind": "screening_failed",
+        "application_id": "a2",
+        "session_id": None,
+        "occurred_at": "t1",
+    }
+    missing = {
+        "kind": "evaluation_missing",
+        "application_id": "a3",
+        "session_id": "s3",
+        "occurred_at": "t2",
+    }
+    issues = [stuck, failed, missing]
 
-def test_new_since_skips_stuck_issue_not_yet_visible():
-    stuck = {"kind": "screening_stuck", "occurred_at": _iso(NOW - timedelta(minutes=5))}
-    assert new_since([stuck], NOW - timedelta(hours=1), NOW) == []
+    assert unalerted(issues, set()) == issues
+    already = {issue_key(i) for i in issues}
+    assert unalerted(issues, already) == []
+
+    failed_again = {**failed, "occurred_at": "t9"}
+    assert unalerted([stuck, failed_again, missing], already) == [failed_again]
 
 
 def test_summarize_usage_totals_and_breakdowns():
@@ -161,3 +188,88 @@ def test_per_question_evaluation_calls_are_grouped():
     summary = summarize_usage(rows, since=NOW - timedelta(days=1), until=NOW)
     ops = {o["operation"]: o["calls"] for o in summary["by_operation"]}
     assert ops == {"evaluate:score_question": 3, "evaluate:synthesis": 1}
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.sets: dict[str, set[str]] = {}
+        self.locks: set[str] = set()
+
+    def set(self, key, value, nx=False, ex=None):
+        if nx and key in self.locks:
+            return None
+        self.locks.add(key)
+        return True
+
+    def delete(self, key):
+        self.locks.discard(key)
+        self.sets.pop(key, None)
+
+    def smembers(self, key):
+        return set(self.sets.get(key, set()))
+
+    def sadd(self, key, *values):
+        self.sets.setdefault(key, set()).update(values)
+
+    def pipeline(self):
+        return self
+
+    def execute(self):
+        return []
+
+
+def test_run_alert_check_emails_each_issue_once(monkeypatch):
+    import sys
+    import types
+
+    from app.services import pipeline_health as ph
+
+    stuck = {
+        "kind": "screening_stuck",
+        "application_id": "a1",
+        "session_id": None,
+        "occurred_at": "t0",
+    }
+    current = {"issues": [stuck]}
+    sent: list[list[dict]] = []
+    fail_send = {"on": False}
+
+    def send_pipeline_alert(recipients, issues):
+        if fail_send["on"]:
+            raise RuntimeError("resend down")
+        sent.append(issues)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.email",
+        types.SimpleNamespace(send_pipeline_alert=send_pipeline_alert),
+    )
+    redis = _FakeRedis()
+    monkeypatch.setattr(ph, "_redis", lambda: redis)
+    monkeypatch.setattr(ph, "_all_rows", lambda build: [{"id": "org1"}])
+    monkeypatch.setattr(ph, "find_issues", lambda org_id, strict: list(current["issues"]))
+    monkeypatch.setattr(ph, "_auth_emails", lambda: {"u1": "admin@example.com"})
+    monkeypatch.setattr(ph, "_active_admin_user_ids", lambda org_id: {"u1"})
+
+    assert ph.run_alert_check() == 1
+    assert ph.run_alert_check() == 0  # same issue, already alerted
+    assert sent == [[stuck]]
+
+    failed = {
+        "kind": "screening_failed",
+        "application_id": "a2",
+        "session_id": None,
+        "occurred_at": "t1",
+    }
+    current["issues"] = [stuck, failed]
+    fail_send["on"] = True
+    assert ph.run_alert_check() == 0  # send failed: nothing recorded
+    fail_send["on"] = False
+    assert ph.run_alert_check() == 1  # retried next run, only the new issue
+    assert sent[-1] == [failed]
+
+    current["issues"] = []  # both resolved
+    ph.run_alert_check()
+    current["issues"] = [stuck]  # stuck again later: alerted again
+    assert ph.run_alert_check() == 1
+    assert ph._ALERT_LOCK_KEY not in redis.locks  # lock released

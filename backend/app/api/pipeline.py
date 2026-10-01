@@ -16,7 +16,7 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 @router.get("/issues")
-async def list_pipeline_issues(authorization: str = Header(...)) -> dict[str, list[dict[str, Any]]]:
+def list_pipeline_issues(authorization: str = Header(...)) -> dict[str, list[dict[str, Any]]]:
     """Applications whose screening failed or never ran, and interviews with no evaluation."""
     org_id = _resolve_admin_org(authorization)
     try:

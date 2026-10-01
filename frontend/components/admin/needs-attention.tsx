@@ -108,7 +108,7 @@ export function NeedsAttention() {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          {issues.length > 0 ? (
+          {issues.length > 0 || error ? (
             <AlertTriangle className="size-4 text-orange-600 dark:text-orange-400" />
           ) : (
             <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
@@ -116,9 +116,11 @@ export function NeedsAttention() {
           <CardTitle>Needs attention</CardTitle>
         </div>
         <CardDescription>
-          {issues.length > 0
-            ? "Candidates whose resume screening or interview evaluation failed or never ran. Admins are emailed hourly about new ones."
-            : "No failed or stuck screenings or interview evaluations."}
+          {error
+            ? "Could not check the pipeline for failures right now."
+            : issues.length > 0
+              ? "Candidates whose resume screening or interview evaluation failed or never ran. Admins are emailed hourly about new ones."
+              : "No failed or stuck screenings or interview evaluations."}
         </CardDescription>
       </CardHeader>
       {(issues.length > 0 || error) && (

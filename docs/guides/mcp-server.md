@@ -44,7 +44,7 @@ backend role."*
 | `review_candidate` | Shortlist or reject an application, with optional recruiter notes. Changes status only; no email is sent |
 | `get_pipeline_status` | Counts per stage for one job or every job |
 | `get_screening_status` | Whether resume screening has finished for an application |
-| `get_usage` | Estimated AI and voice spend over the last N days (default 30), by day, provider, operation and job |
+| `get_usage` | Estimated AI and voice spend over the last N days (default 30, up to 90), by day, provider, operation and job |
 
 ## Configuration
 
