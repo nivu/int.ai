@@ -163,7 +163,11 @@ export function UsageTab() {
           setError(null);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load usage.");
+        if (!cancelled) {
+          // Don't leave the previous period's numbers under the new period label.
+          setSummary(null);
+          setError(err instanceof Error ? err.message : "Failed to load usage.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -247,7 +247,7 @@ def test_run_alert_check_emails_each_issue_once(monkeypatch):
     redis = _FakeRedis()
     monkeypatch.setattr(ph, "_redis", lambda: redis)
     monkeypatch.setattr(ph, "_all_rows", lambda build: [{"id": "org1"}])
-    monkeypatch.setattr(ph, "find_issues", lambda org_id, strict: list(current["issues"]))
+    monkeypatch.setattr(ph, "find_issues", lambda org_id: list(current["issues"]))
     monkeypatch.setattr(ph, "_auth_emails", lambda: {"u1": "admin@example.com"})
     monkeypatch.setattr(ph, "_active_admin_user_ids", lambda org_id: {"u1"})
 

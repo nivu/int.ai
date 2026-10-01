@@ -192,26 +192,15 @@ def _org_job_titles(org_id: str) -> dict[str, str]:
     return {r["id"]: r["title"] for r in rows}
 
 
-def find_issues(
-    org_id: str, *, now: datetime | None = None, strict: bool = False
-) -> list[dict[str, Any]]:
-    """All current issues for an org.
-
-    ``strict`` re-raises a failed interview lookup instead of returning the
-    screening issues alone; the alert check needs the complete set, the
-    dashboard prefers a partial answer.
-    """
+def find_issues(org_id: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """All current issues for an org. Raises if any lookup fails: a partial
+    answer would read as an all-clear on the dashboard and would let the
+    alert check forget issues it could not see."""
     now = now or datetime.now(UTC)
     titles = _org_job_titles(org_id)
     if not titles:
         return []
-    try:
-        sessions = _completed_sessions_without_report(org_id, now - EVALUATION_LOOKBACK)
-    except Exception:
-        if strict:
-            raise
-        logger.exception("Could not check interview evaluations for org=%s", org_id)
-        sessions = []
+    sessions = _completed_sessions_without_report(org_id, now - EVALUATION_LOOKBACK)
     return classify(_applied_applications(org_id), sessions, titles, now=now)
 
 
@@ -290,7 +279,7 @@ def run_alert_check() -> int:
         sent = 0
         for org_id in org_ids:
             try:
-                issues = find_issues(org_id, strict=True)
+                issues = find_issues(org_id)
                 sent_key = _ALERT_SENT_KEY.format(org_id=org_id)
                 fresh = unalerted(issues, r.smembers(sent_key))
                 if fresh:
