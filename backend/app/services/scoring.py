@@ -405,7 +405,7 @@ def load_culture_expectation(hiring_post_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 # Fixed for every post (spec FR-008). Mirrored in the compute_overall_score()
-# database trigger (migration 027) — change both together.
+# database trigger (migration 028) — change both together.
 SCORING_WEIGHTS = {
     "embedding_similarity": 0.15,
     "skill_match": 0.35,
