@@ -83,8 +83,8 @@ automatically parses the resume into structured markdown and fields,
 runs a three-layer scoring pipeline (embedding similarity, LLM skill
 match, LLM experience match, LLM culture match) against the JD, and
 populates a standardized candidate table with scores. Candidates above
-the threshold are auto-advanced to interview; below are rejected or
-flagged for review.
+the threshold are auto-advanced to interview; below are rejected. There
+is no manual-review band.
 
 **Why this priority**: Automated screening is the core value proposition.
 It eliminates the manual bottleneck of reviewing hundreds of resumes.
@@ -107,19 +107,16 @@ rejection status based on the threshold.
 3. **Given** a candidate scores 60% on a post with a 70% threshold,
    **When** screening completes, **Then** the candidate status is set to
    "Rejected."
-4. **Given** a candidate scores 67% on a post with a 70% threshold (within
-   5% borderline range), **When** screening completes, **Then** the
-   candidate is flagged for recruiter review.
-5. **Given** a post requires "OpenAI API" and a resume never names it but
+4. **Given** a post requires "OpenAI API" and a resume never names it but
    describes building LLM agents with LangChain/LangGraph, **When**
    screening completes, **Then** that skill is counted as covered, marked
    "implied", and the score breakdown names the resume evidence it is
    implied by.
-6. **Given** a post with a 70% skill cut-off and 25 required skills,
+5. **Given** a post with a 70% skill cut-off and 25 required skills,
    **When** a resume covers 17 of them (directly or implied), **Then** the
    skill match is 68% and the breakdown shows the skill cut-off as missed;
    the auto-advance decision still uses only the overall score.
-7. **Given** a recruiter selects one or more screened candidates in the
+6. **Given** a recruiter selects one or more screened candidates in the
    candidate table and clicks Rescore, **When** rescoring completes,
    **Then** their four scores, details and overall score are recomputed
    with the current rules, and their status is unchanged and no email is
@@ -305,8 +302,8 @@ clone it, edit the clone, and assign it to a hiring post.
 
 Admins manage their team by inviting recruiters and hiring managers,
 assigning roles (admin, recruiter, hiring manager), and configuring
-organization-wide settings: email templates, default thresholds, scoring
-weights, data retention policies, and API keys for assistant access (see
+organization-wide settings: email templates, default thresholds, data
+retention policies, and API keys for assistant access (see
 User Story 11). Settings → Usage shows the organisation's estimated AI and
 voice spend. Team members are identified by their login email, which
 lives in Supabase Auth; inviting an address that has no login creates one
@@ -1058,8 +1055,8 @@ Prohibitions:
   multi-selected set from the candidate table. Rescoring recomputes the
   four scores, details and overall score only; it MUST NOT change
   application status, create interview sessions, or send email.
-- **FR-009**: System MUST auto-advance candidates scoring above the
-  threshold to interview and auto-reject or flag candidates below.
+- **FR-009**: System MUST auto-advance candidates whose overall score is at
+  or above the threshold to interview and auto-reject candidates below it.
 - **FR-010**: System MUST send interview invitation emails to auto-advanced
   candidates with a time window and portal link.
 - **FR-011**: System MUST authenticate candidates on the portal via email

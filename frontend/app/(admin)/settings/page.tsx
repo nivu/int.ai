@@ -84,11 +84,6 @@ interface InterviewTemplate {
 }
 
 interface OrgSettings {
-  scoring_weights?: {
-    skill: number;
-    experience: number;
-    culture: number;
-  };
   screening_threshold?: number;
   default_template_id?: string;
 }
@@ -442,7 +437,6 @@ function DefaultsTab() {
   const supabase = createClient();
   const orgId = useOrgId();
 
-  const [weights, setWeights] = useState({ skill: 0.4, experience: 0.35, culture: 0.25 });
   const [threshold, setThreshold] = useState(70);
   const [templateId, setTemplateId] = useState("");
   const [templates, setTemplates] = useState<InterviewTemplate[]>([]);
@@ -463,7 +457,6 @@ function DefaultsTab() {
 
       if (org?.settings) {
         const s = org.settings as OrgSettings;
-        if (s.scoring_weights) setWeights(s.scoring_weights);
         if (s.screening_threshold != null) setThreshold(s.screening_threshold);
         if (s.default_template_id) setTemplateId(s.default_template_id);
       }
@@ -481,44 +474,12 @@ function DefaultsTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
-  // Redistribute weights to sum to 1.0 when one slider changes
-  function handleWeightChange(
-    key: "skill" | "experience" | "culture",
-    raw: number
-  ) {
-    const newVal = Math.max(0, Math.min(1, raw));
-    const others = (["skill", "experience", "culture"] as const).filter(
-      (k) => k !== key
-    );
-    const remaining = 1 - newVal;
-    const otherSum = others.reduce((s, k) => s + weights[k], 0);
-
-    const updated = { ...weights, [key]: newVal };
-    if (otherSum > 0) {
-      for (const k of others) {
-        updated[k] = (weights[k] / otherSum) * remaining;
-      }
-    } else {
-      for (const k of others) {
-        updated[k] = remaining / others.length;
-      }
-    }
-
-    setWeights(updated);
-    setSaved(false);
-  }
-
   // Save
   const handleSave = useCallback(async () => {
     if (!orgId) return;
     setSaving(true);
     try {
       const settings: OrgSettings = {
-        scoring_weights: {
-          skill: Math.round(weights.skill * 1000) / 1000,
-          experience: Math.round(weights.experience * 1000) / 1000,
-          culture: Math.round(weights.culture * 1000) / 1000,
-        },
         screening_threshold: threshold,
         default_template_id: templateId || undefined,
       };
@@ -535,48 +496,17 @@ function DefaultsTab() {
     } finally {
       setSaving(false);
     }
-  }, [supabase, weights, threshold, templateId, orgId]);
+  }, [supabase, threshold, templateId, orgId]);
 
   return (
     <div className="mt-4 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Scoring Weights</CardTitle>
-          <CardDescription>
-            Adjust how much each dimension contributes to the overall score.
-            Weights automatically redistribute to sum to 1.0.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(["skill", "experience", "culture"] as const).map((key) => (
-            <div key={key} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <Label className="capitalize">{key}</Label>
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {(weights[key] * 100).toFixed(1)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round(weights[key] * 100)}
-                onChange={(e) =>
-                  handleWeightChange(key, Number(e.target.value) / 100)
-                }
-                className="w-full accent-primary"
-              />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Screening Threshold</CardTitle>
           <CardDescription>
             Minimum overall score (0-100) for a candidate to pass screening.
+            The overall score uses fixed weights: resume similarity 15%, skill
+            35%, experience 35%, culture 15%.
           </CardDescription>
         </CardHeader>
         <CardContent>
