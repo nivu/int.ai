@@ -24,10 +24,16 @@ ALTER TABLE interview_qa
 -- Production stores 1536-dimension embeddings (text-embedding-3-small, see
 -- backend/app/services/embeddings.py) but the migrations declared 384. Align
 -- fresh databases; a no-op where the column is already 1536.
+--
+-- The check compares the dimension (pgvector stores it as the typmod), not
+-- format_type() text: the original version of this file compared against
+-- 'vector(1536)', production reports 'extensions.vector(1536)', and the
+-- USING NULL rewrite cleared every stored embedding there on 2026-10-02
+-- (restored by backend/scripts/data/restore_resume_embeddings.py).
 DO $$
 BEGIN
-    IF (SELECT format_type(atttypid, atttypmod) FROM pg_attribute
-        WHERE attrelid = 'resume_data'::regclass AND attname = 'embedding') <> 'vector(1536)'
+    IF (SELECT atttypmod FROM pg_attribute
+        WHERE attrelid = 'resume_data'::regclass AND attname = 'embedding') <> 1536
     THEN
         ALTER TABLE resume_data ALTER COLUMN embedding TYPE extensions.vector(1536) USING NULL;
     END IF;

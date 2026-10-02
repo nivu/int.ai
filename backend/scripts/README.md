@@ -56,6 +56,7 @@ Prefer the `Makefile` at `backend/` root for routine work — `make worker-start
 | `reset_interview.py` | Reset an interview session |
 | `send_interview_invitation.py` | Manually send an interview invite |
 | `send_email_only.py` | Send an email without side effects |
+| `restore_resume_embeddings.py` | Re-embed resumes with no stored embedding from their original files (dry run unless `--apply`) |
 
 ## `simulations/` — end-to-end exercises
 
