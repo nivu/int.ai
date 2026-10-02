@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 
 class ScreeningTriggerRequest(BaseModel):
@@ -19,3 +21,12 @@ class ScreeningStatusResponse(BaseModel):
     task_id: str
     status: str
     result: dict | None = None
+
+
+class RescoreRequest(BaseModel):
+    application_ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
+class RescoreResponse(BaseModel):
+    queued: list[str]
+    skipped: dict[str, str]  # application_id -> reason

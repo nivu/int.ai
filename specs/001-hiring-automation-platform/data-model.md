@@ -85,8 +85,12 @@ reads or writes this table (MCP auth in `app/mcp/auth.py`, management in
 | experience_min | integer | | Years |
 | experience_max | integer | | Years |
 | education_requirements | text | | |
-| scoring_weights | jsonb | NOT NULL | `{skill_match, experience_match, culture_match, embedding_similarity}`; defaults 0.4 / 0.35 / 0.25 / 0.2. Relative weights: the overall score divides by their total, so they need not sum to 1. All four are shown on the job form |
-| screening_threshold | integer | DEFAULT 70 | Percentage for auto-advance |
+| scoring_weights | jsonb | NOT NULL | Deprecated — no longer read. The overall score uses fixed weights (embedding 0.15, skill 0.35, experience 0.35, culture 0.15) |
+| screening_threshold | integer | DEFAULT 70 | Percentage for auto-advance, compared with the overall score |
+| skill_cutoff | integer | NOT NULL DEFAULT 70, 0-100 | Expected skill coverage %; shown as met/missed, does not gate |
+| experience_cutoff | integer | NOT NULL DEFAULT 60, 0-100 | Expected experience match %; shown as met/missed, does not gate |
+| culture_cutoff | integer | NOT NULL DEFAULT 50, 0-100 | Expected culture match %; shown as met/missed, does not gate |
+
 | interview_template_id | uuid | FK → InterviewTemplate | |
 | status | text | DEFAULT 'draft', CHECK (draft/published/closed/archived) | |
 | published_at | timestamptz | | |
@@ -98,6 +102,19 @@ reads or writes this table (MCP auth in `app/mcp/auth.py`, management in
 **State transitions**: draft → published → closed → archived.
 Trigger: auto-close when `closes_at` passes (Supabase pg_cron or
 backend scheduled task).
+
+### HiringPostPrivate
+
+Internal, staff-only settings for a hiring post. Separate from `hiring_posts`
+because published posts are readable by anonymous visitors and candidates.
+
+| Field | Type | Constraints | Notes |
+|-------|------|-------------|-------|
+| hiring_post_id | uuid | PK, FK → hiring_posts ON DELETE CASCADE | |
+| culture_expectation | text | | Culture the post wants (e.g. "professional, client-facing"); used by culture scoring, never shown publicly |
+| updated_at | timestamptz | DEFAULT now() | |
+
+RLS: org members (admin, recruiter) only.
 
 ### Candidate
 

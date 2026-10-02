@@ -10,9 +10,14 @@ from openai import OpenAI
 
 from app.config import settings
 from app.services.embeddings import compute_similarity, embed_text
+from app.services.supabase import supabase
 from app.services.usage import record_openai_chat
 
 logger = logging.getLogger("int.ai")
+
+# Chosen over gpt-4o-mini for steadier implied-skill judgements at ~0.5 cents
+# per screening (see spec 001 FR-007a).
+SCORING_MODEL = "gpt-4.1-mini"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,7 +29,7 @@ def _llm_json_request(system_prompt: str, user_content: str) -> dict:
 
     start = time.time()
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=SCORING_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -44,6 +49,51 @@ def _llm_json_request(system_prompt: str, user_content: str) -> dict:
     )
 
     return json.loads(response.choices[0].message.content)
+
+
+def _apply_alternative_groups(skill_details: dict) -> None:
+    """Credit accepted alternatives deterministically (spec FR-007a).
+
+    For each group of required skills the job accepts as alternatives, a
+    covered member marks the group's missing members as implied by it. Applying
+    this in code rather than in the prompt keeps it consistent run to run.
+    """
+    skills = {s.get("skill"): s for s in skill_details.get("skills", [])}
+    for group in skill_details.get("alternative_groups") or []:
+        if not isinstance(group, list):
+            continue
+        members = [skills[name] for name in group if name in skills]
+        covered = next(
+            (m for m in members if m.get("match_type") in ("direct", "implied")), None
+        )
+        if covered is None or len(members) < 2:
+            continue
+        for m in members:
+            if m.get("match_type") not in ("direct", "implied"):
+                m["match_type"] = "implied"
+                m["implied_by"] = f"{covered['skill']} (accepted alternative in the job description)"
+                m["evidence"] = covered.get("evidence", "")
+
+
+def _skill_coverage(skills_list: list[dict]) -> float:
+    """Share of required skills covered, directly or implied (spec FR-007a).
+
+    Normalises each entry in place so ``matched`` always agrees with
+    ``match_type``. Entries from prompts that predate ``match_type`` fall
+    back to ``matched``.
+    """
+    if not skills_list:
+        return 0.0
+    covered = 0
+    for s in skills_list:
+        match_type = s.get("match_type")
+        if match_type not in ("direct", "implied", "missing"):
+            match_type = "direct" if s.get("matched") else "missing"
+            s["match_type"] = match_type
+        s["matched"] = match_type != "missing"
+        if s["matched"]:
+            covered += 1
+    return covered / len(skills_list)
 
 
 # ---------------------------------------------------------------------------
@@ -126,13 +176,7 @@ def score_skill_match(
     )
     details = _llm_json_request(SKILL_MATCH_SYSTEM_PROMPT, user_content)
 
-    skills_list = details.get("skills", [])
-    if not skills_list:
-        return 0.0, details
-
-    total_confidence = sum(s.get("confidence", 0.0) for s in skills_list)
-    aggregate = total_confidence / len(skills_list)
-    return max(0.0, min(1.0, aggregate)), details
+    return _skill_coverage(details.get("skills", [])), details
 
 
 # ---------------------------------------------------------------------------
@@ -225,12 +269,15 @@ the job description across three dimensions in a single pass.
 Return **only** valid JSON (no markdown fences):
 {
   "skill_match": {
+    "alternative_groups": [["required skill names, copied exactly from the Required Skills list, that the job description accepts as alternatives to each other"]],
     "skills": [
       {
-        "skill": "string",
-        "matched": true/false,
+        "skill": "string — the required skill, exactly as given",
+        "reasoning": "one sentence, written BEFORE choosing match_type: is it named in the resume? if not, which resume work requires it, or which accepted alternative does the resume show?",
+        "match_type": "direct" | "implied" | "missing",
+        "implied_by": "string — for implied only: the resume tools/work that imply it, e.g. 'LangGraph multi-agent LLM workflows'; otherwise empty",
         "confidence": 0.0-1.0,
-        "evidence": "brief quote or explanation from the resume"
+        "evidence": "exact phrase copied verbatim from the resume; empty when missing"
       }
     ]
   },
@@ -249,19 +296,47 @@ Return **only** valid JSON (no markdown fences):
   }
 }
 
-Skill match rules:
-- STRONG implicit inference required — do not penalise candidates for not spelling \
-out fundamentals that are obviously demonstrated:
-  - Any Python project or ML work → data types and basic data structures are \
-prerequisite knowledge. Confidence >= 0.85.
-  - Any Python framework (Django, Flask, FastAPI, PyTorch, TensorFlow, Keras, \
-scikit-learn) → OOP is required to use them. Confidence >= 0.85.
-  - Git mentioned or any team/open-source work → version control. Confidence >= 0.85.
-  - Never give 0% for a fundamental skill when the candidate has years of \
-programming experience — that is not credible.
-- confidence: 0.85-1.0 clearly demonstrated; 0.6-0.84 strongly implied; \
-0.3-0.59 weak signal; 0.0 genuinely no evidence.
-- Set matched=true when confidence >= 0.4.
+Skill match — work in two passes.
+
+Pass 1: read the job description and list in alternative_groups every group \
+of REQUIRED SKILLS it accepts as alternatives to each other (phrases like \
+"several of A, B, C", "A or B", "A, B or equivalent", "such as A, B"). Use \
+the exact names from the Required Skills list; a group needs at least two of \
+them. Example: the job says "several of OpenAI APIs, Anthropic APIs, Hugging \
+Face, LangChain or LangGraph" and the required skills include "OpenAI API", \
+"Anthropic API" and "LangChain / LangGraph" → \
+["OpenAI API", "Anthropic API", "LangChain / LangGraph"]. Return [] if none.
+
+Pass 2: classify every required skill as exactly one of:
+- "direct": the skill, or an obvious synonym of it, is named in the resume \
+(e.g. "PyTorch" listed under skills; "Postgres" for "SQL / PostgreSQL").
+- "implied": not named, but the work the resume describes could not \
+reasonably have been done without it, or the resume shows a listed \
+alternative where the job accepts alternatives. Examples:
+  - Building LLM agents/apps with LangChain or LangGraph → hands-on LLM \
+provider API use (e.g. "OpenAI API"), since those frameworks call such APIs.
+  - A required skill is in a Pass 1 alternatives group and the resume shows \
+hands-on use of another member of that group (e.g. the job says "several of \
+OpenAI APIs, Anthropic APIs, LangChain or LangGraph" and the resume shows \
+LangGraph) → implied by that member.
+  - A retrieval + answer-synthesis pipeline over documents → RAG.
+  - Any Python framework (Django, Flask, FastAPI, PyTorch) → OOP.
+  Always fill implied_by with the specific resume work it is implied by, and \
+that work must genuinely require the skill — an unrelated phrase is not a \
+reason.
+- "missing": neither of the above. Do NOT imply from mere topic adjacency: \
+Python does not imply Docker; ML work does not imply CI/CD or cloud; a \
+GitHub profile link alone is not evidence of a skill.
+- confidence (0.0-1.0) is how sure you are of the classification.
+- evidence must be copied word-for-word from the RESUME. Never quote the job \
+description as evidence.
+
+Culture match rules:
+- If a "Culture Expectation" section is given, score each culture signal and \
+overall by how well the candidate fits THAT expectation (e.g. a \
+"professional, client-facing" post vs a "hacker, self-directed builder" post \
+value different signals). Otherwise infer the expected culture from the job \
+description.
 
 Seniority rules:
 - If the candidate is MORE experienced than the role requires, treat them as \
@@ -277,6 +352,7 @@ def score_all_dimensions(
     resume_text: str,
     jd_text: str,
     jd_skills: list[str],
+    culture_expectation: str | None = None,
 ) -> tuple[float, dict, float, dict, float, dict]:
     """Score skill, experience, and culture match in a single LLM call.
 
@@ -285,17 +361,16 @@ def score_all_dimensions(
     user_content = (
         f"## Required Skills\n{json.dumps(jd_skills)}\n\n"
         f"## Job Description\n{jd_text}\n\n"
-        f"## Resume\n{resume_text}"
     )
+    if culture_expectation and culture_expectation.strip():
+        user_content += f"## Culture Expectation\n{culture_expectation.strip()}\n\n"
+    user_content += f"## Resume\n{resume_text}"
     result = _llm_json_request(COMBINED_SCORING_SYSTEM_PROMPT, user_content)
 
     # Skill
     skill_details = result.get("skill_match", {})
-    skills_list = skill_details.get("skills", [])
-    if skills_list:
-        skill_score = sum(s.get("confidence", 0.0) for s in skills_list) / len(skills_list)
-    else:
-        skill_score = 0.0
+    _apply_alternative_groups(skill_details)
+    skill_score = _skill_coverage(skill_details.get("skills", []))
 
     # Experience
     exp_details = result.get("experience_match", {})
@@ -312,30 +387,38 @@ def score_all_dimensions(
     )
 
 
+def load_culture_expectation(hiring_post_id: str) -> str | None:
+    """Return the post's internal culture expectation (hiring_post_private), if set."""
+    rows = (
+        supabase.table("hiring_post_private")
+        .select("culture_expectation")
+        .eq("hiring_post_id", hiring_post_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0].get("culture_expectation") if rows else None
+
+
 # ---------------------------------------------------------------------------
 # Weighted aggregate
 # ---------------------------------------------------------------------------
 
-DEFAULT_WEIGHTS = {
-    "embedding_similarity": 0.20,
+# Fixed for every post (spec FR-008). Mirrored in the compute_overall_score()
+# database trigger (migration 027) — change both together.
+SCORING_WEIGHTS = {
+    "embedding_similarity": 0.15,
     "skill_match": 0.35,
-    "experience_match": 0.25,
-    "culture_match": 0.20,
+    "experience_match": 0.35,
+    "culture_match": 0.15,
 }
 
 
-def compute_overall_score(scores: dict, weights: dict | None = None) -> float:
-    """Compute weighted aggregate of the four scoring dimensions.
+def compute_overall_score(scores: dict) -> float:
+    """Compute the fixed-weight aggregate of the four scoring dimensions.
 
     *scores* should have keys: embedding_similarity, skill_match,
     experience_match, culture_match — each a float 0.0-1.0.
-
-    *weights* should have the same keys mapping to float weights.
-    Falls back to DEFAULT_WEIGHTS for any missing key.
     """
-    w = {**DEFAULT_WEIGHTS, **(weights or {})}
-    total_weight = sum(w.get(k, 0.0) for k in scores)
-    if total_weight == 0:
-        return 0.0
-    weighted_sum = sum(scores[k] * w.get(k, 0.0) for k in scores)
-    return max(0.0, min(1.0, weighted_sum / total_weight))
+    weighted_sum = sum(scores.get(k, 0.0) * w for k, w in SCORING_WEIGHTS.items())
+    return max(0.0, min(1.0, weighted_sum))

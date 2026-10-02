@@ -12,6 +12,8 @@ export interface SkillMatchDetails {
   skills: {
     skill: string;
     matched: boolean;
+    match_type?: "direct" | "implied" | "missing";
+    implied_by?: string;
     confidence: number;
     evidence: string;
   }[];
@@ -128,12 +130,24 @@ export function SkillMatchPopover({ details }: { details: SkillMatchDetails }) {
       <div className="space-y-1">
         {matched.map((s) => (
           <div key={s.skill} className="flex items-start gap-1.5">
-            <CheckCircle2 className="size-3 text-green-500 flex-shrink-0 mt-0.5" />
+            <CheckCircle2
+              className={cn(
+                "size-3 flex-shrink-0 mt-0.5",
+                s.match_type === "implied" ? "text-blue-500" : "text-green-500"
+              )}
+            />
             <div className="min-w-0">
               <span className="text-xs font-medium text-foreground">
                 {s.skill}
               </span>
-              {s.evidence && (
+              {s.match_type === "implied" && (
+                <span className="ml-1 text-xs text-blue-600 dark:text-blue-400">(implied)</span>
+              )}
+              {s.match_type === "implied" && s.implied_by ? (
+                <p className="text-xs text-muted-foreground line-clamp-1">
+                  Implied by: {s.implied_by}
+                </p>
+              ) : s.evidence && (
                 <p className="text-xs text-muted-foreground line-clamp-1">
                   {s.evidence}
                 </p>
