@@ -163,6 +163,60 @@ function SortableHeader({
 }
 
 // ---------------------------------------------------------------------------
+// Rescore — recompute scores only; never changes status or sends email
+// ---------------------------------------------------------------------------
+
+interface RescoreResult {
+  queued: string[];
+  skipped: Record<string, string>;
+}
+
+async function rescoreApplications(applicationIds: string[]): Promise<RescoreResult> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  return backendFetch<RescoreResult>("/api/v1/screening/rescore", {
+    method: "POST",
+    body: JSON.stringify({ application_ids: applicationIds }),
+    token: session?.access_token,
+  });
+}
+
+function RescoreButton({ applicationId }: { applicationId: string }) {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "failed">("idle");
+
+  async function handleClick() {
+    setState("loading");
+    try {
+      const result = await rescoreApplications([applicationId]);
+      setState(result.queued.length ? "done" : "failed");
+    } catch {
+      setState("failed");
+    }
+  }
+
+  if (state === "done") {
+    return <span className="text-xs text-muted-foreground whitespace-nowrap">Rescoring…</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={state === "loading"}
+      title="Recompute scores with the current rules. Status and emails are not affected."
+      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50 whitespace-nowrap"
+    >
+      {state === "loading" ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : (
+        <RefreshCw className="size-3" />
+      )}
+      {state === "failed" ? "Retry" : "Rescore"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Re-screen button
 // ---------------------------------------------------------------------------
 
@@ -469,12 +523,15 @@ function buildColumns(
           );
         }
         return (
-          <Link
-            href={`/candidates/${row.original.id}/score-details`}
-            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors whitespace-nowrap"
-          >
-            Score Details
-          </Link>
+          <div className="flex items-center gap-1.5">
+            <Link
+              href={`/candidates/${row.original.id}/score-details`}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors whitespace-nowrap"
+            >
+              Score Details
+            </Link>
+            <RescoreButton applicationId={row.original.id} />
+          </div>
         );
       },
       enableSorting: false,
@@ -538,6 +595,31 @@ export default function CandidateTable({
   const canSendInterview = selectedRows.some((r) => !POST_INTERVIEW_STATUSES.includes(r.status));
 
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [rescoreNotice, setRescoreNotice] = useState<string | null>(null);
+
+  async function handleBulkRescore() {
+    const selectedIds = Object.keys(rowSelection);
+    if (selectedIds.length === 0) return;
+    setBulkLoading(true);
+    try {
+      const result = await rescoreApplications(selectedIds);
+      const reasons: Record<string, number> = {};
+      for (const reason of Object.values(result.skipped)) reasons[reason] = (reasons[reason] ?? 0) + 1;
+      const skippedText = Object.entries(reasons)
+        .map(([reason, n]) => `${n} ${reason}`)
+        .join(", ");
+      setRescoreNotice(
+        `Rescoring ${result.queued.length} candidate${result.queued.length === 1 ? "" : "s"}` +
+          (skippedText ? ` (skipped: ${skippedText})` : "") +
+          ". Scores update in about a minute; status and emails are unchanged.",
+      );
+      setRowSelection({});
+    } catch (err) {
+      setRescoreNotice(`Rescore failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
 
   async function handleBulkAction(action: "send_interview" | "reject" | "shortlist") {
     const selectedIds = Object.keys(rowSelection);
@@ -745,8 +827,30 @@ export default function CandidateTable({
             >
               Advance to Shortlist
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={bulkLoading}
+              title="Recompute scores with the current rules. Status and emails are not affected."
+              onClick={handleBulkRescore}
+            >
+              <RefreshCw className="mr-1 size-3" />
+              Rescore
+            </Button>
             <CompareButton selectedIds={Object.keys(rowSelection)} />
           </div>
+        </div>
+      )}
+      {rescoreNotice && (
+        <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2 text-sm">
+          <span>{rescoreNotice}</span>
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setRescoreNotice(null)}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

@@ -12,6 +12,7 @@ from app.services.embeddings import embed_text, store_embedding
 from app.services.resume_parser import extract_text_from_docx, extract_text_from_pdf, parse_resume
 from app.services.scoring import (
     compute_overall_score,
+    load_culture_expectation,
     score_all_dimensions,
     score_embedding_similarity,
 )
@@ -20,6 +21,24 @@ from app.services.usage import reset_usage_context, set_usage_context
 from app.worker import celery_app
 
 logger = logging.getLogger("int.ai")
+
+
+def download_resume_text(resume_path: str) -> str:
+    """Download a resume from Supabase Storage and extract its raw text."""
+    file_bytes = supabase.storage.from_("resumes").download(resume_path)
+
+    filename = resume_path.rsplit("/", maxsplit=1)[-1] if "/" in resume_path else resume_path
+    extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+    if extension == "pdf":
+        resume_text = extract_text_from_pdf(file_bytes)
+    elif extension in ("docx", "doc"):
+        resume_text = extract_text_from_docx(file_bytes)
+    else:
+        raise ValueError(f"Unsupported resume format: .{extension}")
+
+    if not resume_text.strip():
+        raise ValueError("Could not extract any text from the resume file.")
+    return resume_text
 
 
 @celery_app.task(bind=True, name="screen_resume_task", max_retries=2)
@@ -53,27 +72,12 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         job_title: str = hiring_post.get("title", "")
         jd_text: str = hiring_post.get("description", "")
         jd_skills: list[str] = hiring_post.get("required_skills", []) or []
-        scoring_weights: dict | None = hiring_post.get("scoring_weights")
+        culture_expectation = load_culture_expectation(hiring_post_id)
         threshold: float = float(hiring_post.get("screening_threshold", 70)) / 100.0
 
-        # 2. Download resume from Supabase Storage
-        bucket = "resumes"
-        file_bytes = supabase.storage.from_(bucket).download(resume_path)
-
-        filename = resume_path.rsplit("/", maxsplit=1)[-1] if "/" in resume_path else resume_path
-
-        # 3. Extract raw text (fast — pdfplumber/docx, no LLM)
+        # 2-3. Download resume and extract raw text (fast — pdfplumber/docx, no LLM)
         logger.info("Extracting text from resume for application=%s", application_id)
-        extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
-        if extension == "pdf":
-            resume_text = extract_text_from_pdf(file_bytes)
-        elif extension in ("docx", "doc"):
-            resume_text = extract_text_from_docx(file_bytes)
-        else:
-            raise ValueError(f"Unsupported resume format: .{extension}")
-
-        if not resume_text.strip():
-            raise ValueError("Could not extract any text from the resume file.")
+        resume_text = download_resume_text(resume_path)
 
         # 4. Create a placeholder resume_data row so score details have somewhere to land.
         #    raw_markdown is set to the extracted text now; the LLM-parsed fields are
@@ -92,7 +96,9 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         pool = ThreadPoolExecutor(max_workers=3)
         fut_parse = pool.submit(parse_resume, resume_text)
         fut_embed = pool.submit(score_embedding_similarity, resume_text, jd_text)
-        fut_scores = pool.submit(score_all_dimensions, resume_text, jd_text, jd_skills)
+        fut_scores = pool.submit(
+            score_all_dimensions, resume_text, jd_text, jd_skills, culture_expectation,
+        )
 
         # Collect scoring results
         embedding_score = fut_embed.result()
@@ -109,7 +115,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
             "experience_match": experience_score,
             "culture_match": culture_score,
         }
-        overall_score = compute_overall_score(scores, scoring_weights)
+        overall_score = compute_overall_score(scores)
 
         logger.info(
             "Screening complete for application=%s overall=%.3f "

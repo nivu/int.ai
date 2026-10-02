@@ -38,13 +38,11 @@ export interface HiringPostFormData {
   experience_max: number;
   education_requirements: string;
   // screening config
-  scoring_weights: {
-    skill_match: number;
-    experience_match: number;
-    culture_match: number;
-    embedding_similarity: number;
-  };
   screening_threshold: number;
+  skill_cutoff: number;
+  experience_cutoff: number;
+  culture_cutoff: number;
+  culture_expectation: string;
   // interview settings
   max_questions: number;
   max_duration_minutes: number;
@@ -75,13 +73,11 @@ const defaultFormData: HiringPostFormData = {
   experience_min: 0,
   experience_max: 0,
   education_requirements: "",
-  scoring_weights: {
-    skill_match: 0.4,
-    experience_match: 0.35,
-    culture_match: 0.25,
-    embedding_similarity: 0.2,
-  },
   screening_threshold: 70,
+  skill_cutoff: 70,
+  experience_cutoff: 60,
+  culture_cutoff: 50,
+  culture_expectation: "",
   max_questions: 10,
   max_duration_minutes: 45,
   custom_questions: [],
@@ -98,10 +94,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
   const [form, setForm] = useState<HiringPostFormData>({
     ...defaultFormData,
     ...initialData,
-    scoring_weights: {
-      ...defaultFormData.scoring_weights,
-      ...initialData?.scoring_weights,
-    },
     custom_questions: initialData?.custom_questions ?? [],
   });
 
@@ -113,17 +105,6 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
   const update = useCallback(
     <K extends keyof HiringPostFormData>(key: K, value: HiringPostFormData[K]) => {
       setForm((prev) => ({ ...prev, [key]: value }));
-    },
-    [],
-  );
-
-  const updateWeight = useCallback(
-    (key: keyof HiringPostFormData["scoring_weights"], raw: number) => {
-      const clamped = Math.min(Math.max(raw, 0), 1);
-      setForm((prev) => ({
-        ...prev,
-        scoring_weights: { ...prev.scoring_weights, [key]: clamped },
-      }));
     },
     [],
   );
@@ -339,40 +320,50 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Scoring weights */}
+          {/* Dimension cut-offs */}
           <p className="text-xs text-muted-foreground">
-            Weights are relative: each one is divided by their total, so they
-            do not need to add up to 100.
+            Cut-offs set what this role expects on each dimension. They are
+            shown as met or missed on each candidate&apos;s score breakdown and
+            do not change the overall score.
           </p>
-          {(
-            [
-              ["skill_match", "Skill Match", "Required skills found in the resume"],
-              ["experience_match", "Experience Match", "Seniority and years of experience against the role"],
-              ["culture_match", "Culture Match", "Collaboration, communication and initiative signals"],
-              ["embedding_similarity", "Resume Similarity", "How closely the resume text matches the job description"],
-            ] as const
-          ).map(([key, label, hint]) => (
-            <div key={key} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>{label}</Label>
-                  <p className="text-xs text-muted-foreground">{hint}</p>
-                </div>
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {(form.scoring_weights[key] * 100).toFixed(0)}%
-                </span>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {(
+              [
+                ["skill_cutoff", "Skill Cut-off", "% of required skills covered, named or implied"],
+                ["experience_cutoff", "Experience Cut-off", "Higher for a specific role and years; lower for diverse backgrounds"],
+                ["culture_cutoff", "Culture Cut-off", "How closely the candidate should fit the culture below"],
+              ] as const
+            ).map(([key, label, hint]) => (
+              <div key={key} className="space-y-1.5">
+                <Label htmlFor={key}>{label}</Label>
+                <Input
+                  id={key}
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form[key]}
+                  onChange={(e) => update(key, Number(e.target.value))}
+                  onBlur={(e) => update(key, Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                />
+                <p className="text-xs text-muted-foreground">{hint}</p>
               </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round(form.scoring_weights[key] * 100)}
-                onChange={(e) => updateWeight(key, Number(e.target.value) / 100)}
-                className="w-full accent-primary"
-              />
-            </div>
-          ))}
+            ))}
+          </div>
+
+          {/* Culture expectation (internal) */}
+          <div className="space-y-1.5">
+            <Label htmlFor="culture_expectation">Culture Expectation (internal)</Label>
+            <Textarea
+              id="culture_expectation"
+              rows={3}
+              placeholder="e.g. Professional and client-facing, or hacker-style self-directed builder"
+              value={form.culture_expectation}
+              onChange={(e) => update("culture_expectation", e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Used to score culture match. Not shown on the job post or to candidates.
+            </p>
+          </div>
 
           {/* Threshold */}
           <div className="space-y-1.5">
@@ -388,7 +379,9 @@ export default function JobForm({ initialData, onSubmit, loading }: JobFormProps
               }
             />
             <p className="text-xs text-muted-foreground">
-              Candidates scoring below this threshold will be auto-rejected.
+              Candidates whose overall score is below this threshold will be
+              auto-rejected. Overall = resume similarity 15% + skill 35% +
+              experience 35% + culture 15%.
             </p>
           </div>
 

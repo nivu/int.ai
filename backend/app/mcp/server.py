@@ -37,7 +37,8 @@ LocationType = Literal["remote", "onsite", "hybrid"]
 
 JOB_COLUMNS = (
     "id, title, department, status, location_type, location, description, required_skills, "
-    "experience_min, experience_max, education_requirements, scoring_weights, screening_threshold, "
+    "experience_min, experience_max, education_requirements, screening_threshold, "
+    "skill_cutoff, experience_cutoff, culture_cutoff, "
     "interview_template_id, created_at, published_at, closes_at, share_slug"
 )
 APPLICATION_COLUMNS = (
@@ -151,6 +152,15 @@ def get_job(job_id: str) -> dict[str, Any]:
             .data
         )
         job["interview_template"] = tmpl[0] if tmpl else None
+    private = (
+        sb.table("hiring_post_private")
+        .select("culture_expectation")
+        .eq("hiring_post_id", job_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    job["culture_expectation"] = private[0]["culture_expectation"] if private else None
     apps = sb.table("applications").select("status").eq("hiring_post_id", job_id).execute().data or []
     by_status: dict[str, int] = {}
     for a in apps:
@@ -172,11 +182,11 @@ def create_job(
     experience_min: int = 0,
     experience_max: int = 0,
     education_requirements: str | None = None,
-    skill_weight: float = 0.4,
-    experience_weight: float = 0.35,
-    culture_weight: float = 0.25,
-    similarity_weight: float = 0.2,
     screening_threshold: int = 70,
+    skill_cutoff: int = 70,
+    experience_cutoff: int = 60,
+    culture_cutoff: int = 50,
+    culture_expectation: str | None = None,
     max_questions: int = 10,
     max_duration_minutes: int = 45,
     custom_questions: list[str] | None = None,
@@ -187,10 +197,19 @@ def create_job(
 
     Created as a draft unless publish=true.
 
-    The four scoring weights are relative (each is divided by their total, so
-    they need not sum to 1): skill_weight, experience_weight, culture_weight
-    and similarity_weight (resume-text similarity to the job description).
-    Each must be between 0 and 1 and at least one must be positive.
+    The overall score uses fixed weights (resume similarity 15%, skill 35%,
+    experience 35%, culture 15%); candidates at or above screening_threshold
+    (0-100) are invited to interview.
+
+    skill_cutoff, experience_cutoff and culture_cutoff (0-100) are the expected
+    skill coverage, experience match and culture match for this role. They are
+    shown as met / missed on each candidate's score breakdown and do not change
+    the overall score or the interview decision.
+
+    culture_expectation is internal (never shown on the job post), e.g.
+    "professional, client-facing" or "hacker, self-directed builder"; culture
+    match is scored against it.
+
     closes_at is an ISO-8601 timestamp for when applications close (optional).
     """
     org_id, member_id = _actor()
@@ -198,18 +217,14 @@ def create_job(
         raise ToolError("title is required")
     if not description.strip():
         raise ToolError("description is required (use generate_job_description to draft one)")
-    weights = {
-        "skill_match": skill_weight,
-        "experience_match": experience_weight,
-        "culture_match": culture_weight,
-        "embedding_similarity": similarity_weight,
-    }
-    if any(not 0.0 <= w <= 1.0 for w in weights.values()):
-        raise ToolError("each scoring weight must be between 0 and 1")
-    if sum(weights.values()) <= 0:
-        raise ToolError("at least one scoring weight must be greater than 0")
-    if not 0 <= screening_threshold <= 100:
-        raise ToolError("screening_threshold must be between 0 and 100")
+    for name, value in (
+        ("screening_threshold", screening_threshold),
+        ("skill_cutoff", skill_cutoff),
+        ("experience_cutoff", experience_cutoff),
+        ("culture_cutoff", culture_cutoff),
+    ):
+        if not 0 <= value <= 100:
+            raise ToolError(f"{name} must be between 0 and 100")
 
     template = (
         sb.table("interview_templates")
@@ -241,8 +256,10 @@ def create_job(
                 "experience_min": experience_min,
                 "experience_max": experience_max,
                 "education_requirements": education_requirements,
-                "scoring_weights": weights,
                 "screening_threshold": screening_threshold,
+                "skill_cutoff": skill_cutoff,
+                "experience_cutoff": experience_cutoff,
+                "culture_cutoff": culture_cutoff,
                 "interview_template_id": template["id"],
                 "status": "published" if publish else "draft",
                 "published_at": now if publish else None,
@@ -252,6 +269,10 @@ def create_job(
         .execute()
         .data[0]
     )
+    if culture_expectation and culture_expectation.strip():
+        sb.table("hiring_post_private").insert(
+            {"hiring_post_id": post["id"], "culture_expectation": culture_expectation.strip()}
+        ).execute()
     logger.info("MCP create_job id=%s org=%s by=%s", post["id"], org_id, member_id)
     return get_job(post["id"])
 

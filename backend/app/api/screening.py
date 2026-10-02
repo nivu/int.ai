@@ -9,11 +9,14 @@ from fastapi import APIRouter, Header, HTTPException
 
 from app.api.auth import _resolve_admin_org
 from app.models.screening import (
+    RescoreRequest,
+    RescoreResponse,
     ScreeningStatusResponse,
     ScreeningTriggerRequest,
     ScreeningTriggerResponse,
 )
-from app.services.supabase import get_record
+from app.services.supabase import get_record, supabase
+from app.tasks.rescore_application import rescore_application_task
 from app.tasks.screen_resume import screen_resume_task
 from app.worker import celery_app
 
@@ -46,6 +49,41 @@ async def trigger_screening(
         body.application_id,
     )
     return ScreeningTriggerResponse(task_id=result.id, status="queued")
+
+
+@router.post("/rescore", response_model=RescoreResponse, status_code=202)
+def rescore_applications(
+    body: RescoreRequest,
+    authorization: str = Header(...),
+) -> RescoreResponse:
+    """Recompute scores for screened applications. Never changes status or sends email."""
+    caller_org = _resolve_admin_org(authorization)
+    ids = list(dict.fromkeys(str(i) for i in body.application_ids))
+
+    rows = (
+        supabase.table("applications")
+        .select("id, overall_score, hiring_posts(org_id)")
+        .in_("id", ids)
+        .execute()
+        .data
+        or []
+    )
+    found = {r["id"]: r for r in rows}
+
+    queued: list[str] = []
+    skipped: dict[str, str] = {}
+    for app_id in ids:
+        row = found.get(app_id)
+        if row is None or (row.get("hiring_posts") or {}).get("org_id") != caller_org:
+            skipped[app_id] = "not found"
+        elif row.get("overall_score") is None:
+            skipped[app_id] = "not screened yet"
+        else:
+            rescore_application_task.delay(app_id)
+            queued.append(app_id)
+
+    logger.info("Rescore enqueued: queued=%d skipped=%d org=%s", len(queued), len(skipped), caller_org)
+    return RescoreResponse(queued=queued, skipped=skipped)
 
 
 @router.get("/status/{task_id}", response_model=ScreeningStatusResponse)

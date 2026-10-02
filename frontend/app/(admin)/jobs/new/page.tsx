@@ -64,8 +64,10 @@ export default function NewJobPage() {
           experience_min: data.experience_min,
           experience_max: data.experience_max,
           education_requirements: data.education_requirements,
-          scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
+          skill_cutoff: data.skill_cutoff,
+          experience_cutoff: data.experience_cutoff,
+          culture_cutoff: data.culture_cutoff,
           interview_template_id: template.id,
           status: isPublish ? "published" : "draft",
           published_at: isPublish ? now : null,
@@ -79,6 +81,16 @@ export default function NewJobPage() {
         .single();
 
       if (error) throw error;
+
+      if (data.culture_expectation.trim()) {
+        const { error: privateError } = await supabase
+          .from("hiring_post_private")
+          .insert({
+            hiring_post_id: post.id,
+            culture_expectation: data.culture_expectation.trim(),
+          });
+        if (privateError) throw privateError;
+      }
 
       router.push(`/jobs/${post.id}`);
     } catch (err) {
