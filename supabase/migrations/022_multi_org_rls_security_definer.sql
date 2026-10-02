@@ -207,6 +207,22 @@ CREATE POLICY "ir_anon_share_select" ON interview_reports FOR SELECT
          AND (share_expires_at IS NULL OR share_expires_at > now()));
 
 -- invite_tokens
+-- The table was created outside migrations; define it here (as it exists in
+-- production, per a schema dump on 2026-10-02) so fresh databases can apply
+-- the policies below. IF NOT EXISTS makes this a no-op where it exists.
+CREATE TABLE IF NOT EXISTS invite_tokens (
+    id          uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email       text NOT NULL,
+    token       text NOT NULL UNIQUE DEFAULT encode(extensions.gen_random_bytes(32), 'hex'),
+    role        text NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'recruiter')),
+    created_by  uuid NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
+    accepted_at timestamptz
+);
+ALTER TABLE invite_tokens ENABLE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS "it_admin_all" ON invite_tokens;
 DROP POLICY IF EXISTS "it_self_select" ON invite_tokens;
 CREATE POLICY "it_admin_all" ON invite_tokens FOR ALL
