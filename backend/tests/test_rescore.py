@@ -5,7 +5,6 @@ loads the real app.services.email, which defeats the sys.modules stub in
 test_pipeline_health_and_usage.
 """
 
-import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,10 +33,8 @@ def test_rescore_endpoint_queues_only_screened_apps_in_callers_org():
         patch.object(screening, "supabase", sb),
         patch.object(screening, "rescore_application_task") as task,
     ):
-        resp = asyncio.run(
-            screening.rescore_applications(
-                RescoreRequest(application_ids=[A1, A2, A3, A4, A1]), authorization="Bearer t"
-            )
+        resp = screening.rescore_applications(
+            RescoreRequest(application_ids=[A1, A2, A3, A4, A1]), authorization="Bearer t"
         )
     assert resp.queued == [A1]
     assert resp.skipped == {A2: "not screened yet", A3: "not found", A4: "not found"}

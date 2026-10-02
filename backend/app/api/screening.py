@@ -52,7 +52,7 @@ async def trigger_screening(
 
 
 @router.post("/rescore", response_model=RescoreResponse, status_code=202)
-async def rescore_applications(
+def rescore_applications(
     body: RescoreRequest,
     authorization: str = Header(...),
 ) -> RescoreResponse:

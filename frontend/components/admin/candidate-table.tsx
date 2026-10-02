@@ -603,10 +603,14 @@ export default function CandidateTable({
     setBulkLoading(true);
     try {
       const result = await rescoreApplications(selectedIds);
-      const skipped = Object.keys(result.skipped).length;
+      const reasons: Record<string, number> = {};
+      for (const reason of Object.values(result.skipped)) reasons[reason] = (reasons[reason] ?? 0) + 1;
+      const skippedText = Object.entries(reasons)
+        .map(([reason, n]) => `${n} ${reason}`)
+        .join(", ");
       setRescoreNotice(
         `Rescoring ${result.queued.length} candidate${result.queued.length === 1 ? "" : "s"}` +
-          (skipped ? ` (${skipped} skipped — not screened yet)` : "") +
+          (skippedText ? ` (skipped: ${skippedText})` : "") +
           ". Scores update in about a minute; status and emails are unchanged.",
       );
       setRowSelection({});

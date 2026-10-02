@@ -157,3 +157,11 @@ def test_score_all_dimensions_applies_alternative_groups():
         skill, details, *_ = scoring.score_all_dimensions("r", "jd", ["x"])
     assert skill == 1.0
     assert details["skills"][0]["match_type"] == "implied"
+
+
+def test_score_all_dimensions_drops_malformed_skill_entries():
+    result = _fake_result(["Python", None, {"no_skill": 1}, {"skill": "Git", "match_type": "direct"}])
+    with patch.object(scoring, "_llm_json_request", return_value=result):
+        skill, details, *_ = scoring.score_all_dimensions("r", "jd", ["x"])
+    assert [s["skill"] for s in details["skills"]] == ["Git"]
+    assert skill == 1.0

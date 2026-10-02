@@ -367,8 +367,11 @@ def score_all_dimensions(
     user_content += f"## Resume\n{resume_text}"
     result = _llm_json_request(COMBINED_SCORING_SYSTEM_PROMPT, user_content)
 
-    # Skill
-    skill_details = result.get("skill_match", {})
+    # Skill — drop malformed entries from the LLM JSON before counting
+    skill_details = result.get("skill_match") or {}
+    skill_details["skills"] = [
+        s for s in skill_details.get("skills") or [] if isinstance(s, dict) and s.get("skill")
+    ]
     _apply_alternative_groups(skill_details)
     skill_score = _skill_coverage(skill_details.get("skills", []))
 
