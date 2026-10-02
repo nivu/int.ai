@@ -34,13 +34,10 @@ interface HiringPost {
   experience_min: number;
   experience_max: number;
   education_requirements: string;
-  scoring_weights: {
-    skill_match: number;
-    experience_match: number;
-    culture_match: number;
-    embedding_similarity?: number;
-  };
   screening_threshold: number;
+  skill_cutoff: number;
+  experience_cutoff: number;
+  culture_cutoff: number;
   status: "draft" | "published" | "closed" | "archived";
   published_at: string | null;
   scheduled_publish_at: string | null;
@@ -68,10 +65,12 @@ export default function JobDetailClient({
   post,
   applicationCount,
   templateSettings,
+  cultureExpectation,
 }: {
   post: HiringPost;
   applicationCount: number;
   templateSettings: { max_questions: number; max_duration_minutes: number; custom_questions: string[] } | null;
+  cultureExpectation: string;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -167,8 +166,10 @@ export default function JobDetailClient({
           experience_min: data.experience_min,
           experience_max: data.experience_max,
           education_requirements: data.education_requirements,
-          scoring_weights: data.scoring_weights,
           screening_threshold: data.screening_threshold,
+          skill_cutoff: data.skill_cutoff,
+          experience_cutoff: data.experience_cutoff,
+          culture_cutoff: data.culture_cutoff,
           interview_template_id: templateId,
           status: isPublish ? "published" : post.status,
           published_at:
@@ -186,6 +187,16 @@ export default function JobDetailClient({
         console.error("Supabase update error:", error.message, error.code, error.details);
         throw new Error(error.message);
       }
+
+      const { error: privateError } = await supabase
+        .from("hiring_post_private")
+        .upsert({
+          hiring_post_id: post.id,
+          culture_expectation: data.culture_expectation.trim() || null,
+          updated_at: new Date().toISOString(),
+        });
+      if (privateError) throw new Error(privateError.message);
+
       setEditing(false);
       router.refresh();
     } catch (err) {
@@ -238,9 +249,11 @@ export default function JobDetailClient({
     experience_min: post.experience_min,
     experience_max: post.experience_max,
     education_requirements: post.education_requirements,
-    // Jobs created before the fourth weight was exposed have no value for it.
-    scoring_weights: { embedding_similarity: 0.2, ...post.scoring_weights },
     screening_threshold: post.screening_threshold,
+    skill_cutoff: post.skill_cutoff,
+    experience_cutoff: post.experience_cutoff,
+    culture_cutoff: post.culture_cutoff,
+    culture_expectation: cultureExpectation,
     max_questions: templateSettings?.max_questions ?? 10,
     max_duration_minutes: templateSettings?.max_duration_minutes ?? 45,
     custom_questions: templateSettings?.custom_questions ?? [],
@@ -393,32 +406,32 @@ export default function JobDetailClient({
         </Card>
       )}
 
-      {/* Scoring weights */}
+      {/* Screening cut-offs */}
       <Card>
         <CardHeader>
-          <CardTitle>Scoring Weights</CardTitle>
+          <CardTitle>Screening Cut-offs</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-3 text-sm">
             <div>
               <span className="text-muted-foreground">Skill Match:</span>{" "}
-              <span className="font-medium">
-                {(post.scoring_weights.skill_match * 100).toFixed(0)}%
-              </span>
+              <span className="font-medium">{post.skill_cutoff}%</span>
             </div>
             <div>
               <span className="text-muted-foreground">Experience Match:</span>{" "}
-              <span className="font-medium">
-                {(post.scoring_weights.experience_match * 100).toFixed(0)}%
-              </span>
+              <span className="font-medium">{post.experience_cutoff}%</span>
             </div>
             <div>
               <span className="text-muted-foreground">Culture Match:</span>{" "}
-              <span className="font-medium">
-                {(post.scoring_weights.culture_match * 100).toFixed(0)}%
-              </span>
+              <span className="font-medium">{post.culture_cutoff}%</span>
             </div>
           </div>
+          {cultureExpectation && (
+            <p className="text-sm">
+              <span className="text-muted-foreground">Culture expectation (internal):</span>{" "}
+              {cultureExpectation}
+            </p>
+          )}
         </CardContent>
       </Card>
 

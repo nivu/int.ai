@@ -11,9 +11,10 @@
 
 An admin logs into the dashboard and creates a new hiring post by entering
 job details (title, department, location, JD, required skills, experience
-range, education requirements), configuring screening thresholds and scoring
-weights, setting up an interview template, and publishing the post with a
-deadline. The system generates a shareable application link.
+range, education requirements), configuring the screening threshold, a
+cut-off for each of skill, experience and culture match, and an internal
+culture expectation, setting up an interview template, and publishing the
+post with a deadline. The system generates a shareable application link.
 
 **Why this priority**: Without a published hiring post, no candidate can
 apply and no downstream automation triggers. This is the entry point for
@@ -109,6 +110,20 @@ rejection status based on the threshold.
 4. **Given** a candidate scores 67% on a post with a 70% threshold (within
    5% borderline range), **When** screening completes, **Then** the
    candidate is flagged for recruiter review.
+5. **Given** a post requires "OpenAI API" and a resume never names it but
+   describes building LLM agents with LangChain/LangGraph, **When**
+   screening completes, **Then** that skill is counted as covered, marked
+   "implied", and the score breakdown names the resume evidence it is
+   implied by.
+6. **Given** a post with a 70% skill cut-off and 25 required skills,
+   **When** a resume covers 17 of them (directly or implied), **Then** the
+   skill match is 68% and the breakdown shows the skill cut-off as missed;
+   the auto-advance decision still uses only the overall score.
+7. **Given** a recruiter selects one or more screened candidates in the
+   candidate table and clicks Rescore, **When** rescoring completes,
+   **Then** their four scores, details and overall score are recomputed
+   with the current rules, and their status is unchanged and no email is
+   sent.
 
 ---
 
@@ -628,7 +643,7 @@ content above this section.
 ### Exact Location on Page
 
 The section is rendered on the recruiter job detail page, directly below the
-existing `Scoring Weights` section.
+existing `Screening Cut-offs` section (formerly `Scoring Weights`).
 
 No existing UI above that boundary may be modified, replaced, or reordered:
 - Job title / status / Edit / Close controls
@@ -636,7 +651,7 @@ No existing UI above that boundary may be modified, replaced, or reordered:
 - Share Link
 - Job Description
 - Required Skills
-- Scoring Weights
+- Screening Cut-offs
 
 This feature does not alter the Jobs list page, its table, or the row-level
 `View` button behavior.
@@ -975,7 +990,7 @@ Prohibitions:
 
 #### Walkthrough A: Email Shortlisted Candidates
 1. Recruiter opens a job detail page by clicking `View` from Jobs list.
-2. Scrolls below `Scoring Weights` to Candidate Management Table.
+2. Scrolls below `Screening Cut-offs` to Candidate Management Table.
 3. Optionally narrows candidates via search/filter.
 4. Clicks `Send Bulk Email to Shortlisted Candidates`.
 5. Confirms recipient count shown in modal.
@@ -1015,11 +1030,34 @@ Prohibitions:
   successful application.
 - **FR-006**: System MUST parse uploaded resumes into structured markdown
   and normalized fields using LLM-based extraction.
-- **FR-007**: System MUST score each candidate against the JD using three
-  layers: embedding similarity, LLM skill match, LLM experience match,
-  and LLM culture match.
-- **FR-008**: System MUST compute a weighted overall score using
-  admin-configured weights.
+- **FR-007**: System MUST score each candidate against the JD on four
+  independent dimensions: embedding similarity (raw resume-to-JD vector
+  similarity), LLM skill match, LLM experience match, and LLM culture match.
+- **FR-007a**: Skill match MUST be coverage: the share of the post's
+  required skills the resume covers. A skill is covered when it is named
+  directly or clearly implied by the candidate's work (e.g. LangChain /
+  LangGraph agent work implies hands-on LLM API use; a listed alternative
+  satisfies an "X, Y or equivalent" requirement). Each skill's details
+  MUST record whether it is `direct`, `implied` (with what it is implied
+  by) or `missing`.
+- **FR-007b**: Culture match MUST be scored against the post's internal
+  culture expectation when one is set (e.g. "professional, client-facing"
+  or "hacker, self-directed builder"). The culture expectation MUST NOT be
+  shown on the public job post or to candidates.
+- **FR-008**: System MUST compute the overall score with fixed weights —
+  embedding 15%, skill 35%, experience 35%, culture 15% — the same for
+  every post. Weights are not configurable per post.
+- **FR-008a**: Each post MUST have a cut-off (0-100%) for skill,
+  experience and culture match, set on the job form and via the API/MCP.
+  Embedding similarity has no cut-off. Cut-offs are shown as met / missed
+  on the score breakdown; they do not change the overall score and do not
+  drive auto-advance. Posts created before cut-offs existed get defaults
+  relative to their screening threshold T: skill T, experience T-10,
+  culture T-20 (clamped to 0-100).
+- **FR-008b**: Recruiters MUST be able to rescore one candidate or a
+  multi-selected set from the candidate table. Rescoring recomputes the
+  four scores, details and overall score only; it MUST NOT change
+  application status, create interview sessions, or send email.
 - **FR-009**: System MUST auto-advance candidates scoring above the
   threshold to interview and auto-reject or flag candidates below.
 - **FR-010**: System MUST send interview invitation emails to auto-advanced

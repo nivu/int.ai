@@ -35,6 +35,13 @@ export default async function JobDetailPage({
     templateSettings = tmpl ? { ...tmpl, custom_questions: tmpl.custom_questions ?? [] } : null;
   }
 
+  // Internal culture expectation (staff-only table)
+  const { data: privateRow } = await supabase
+    .from("hiring_post_private")
+    .select("culture_expectation")
+    .eq("hiring_post_id", id)
+    .maybeSingle();
+
   // Application count
   const { count: applicationCount } = await supabase
     .from("applications")
@@ -46,6 +53,7 @@ export default async function JobDetailPage({
       post={post}
       applicationCount={applicationCount ?? 0}
       templateSettings={templateSettings}
+      cultureExpectation={privateRow?.culture_expectation ?? ""}
     />
   );
 }
