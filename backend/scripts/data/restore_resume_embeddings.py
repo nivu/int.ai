@@ -64,6 +64,8 @@ def main(apply: bool) -> None:
         print(f"restored {restored} of {len(rows)}")
     for app_id, reason in failed:
         print(f"  skipped application={app_id}: {reason}")
+    if apply and failed:
+        sys.exit(f"{len(failed)} rows not restored")
 
 
 if __name__ == "__main__":
