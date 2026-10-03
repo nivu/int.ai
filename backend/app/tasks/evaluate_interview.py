@@ -28,7 +28,7 @@ def evaluate_interview_task(self, session_id: str, send_candidate_email: bool = 
     session_record = get_record("interview_sessions", session_id)
     application_id = session_record.get("application_id")
 
-    # Tag the o1-mini evaluation calls with org / job / application / session.
+    # Tag the o4-mini evaluation calls with org / job / application / session.
     usage_ids: dict = {"interview_session_id": session_id, "application_id": application_id}
     try:
         if application_id:

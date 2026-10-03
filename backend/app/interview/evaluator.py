@@ -1,10 +1,11 @@
-"""Interview evaluation engine powered by OpenAI o1-mini.
+"""Interview evaluation engine powered by OpenAI o4-mini.
 
 Scores each Q&A pair on four dimensions, computes an overall grade,
 generates an AI narrative summary, and produces the final interview report.
 
 Key constraints (all per spec):
-- Model: o1-mini (no system role, no response_format, all prompts in user turn)
+- Model: o4-mini (no system role, no response_format, all prompts in user turn)
+- A failed API call raises: grading never silently falls back to zero scores
 - Every prompt ends with the hard JSON-only instruction
 - Unconditional fence stripping + try/catch/retry on every parse
 - Null answers score 0 and skip the API call
@@ -30,7 +31,9 @@ from app.services.usage import record_openai_chat, record_usage
 
 logger = logging.getLogger("int.ai")
 
-_MODEL = "o1-mini"
+# o1-mini was retired by OpenAI (404 model_not_found), which made every
+# evaluation fall back to zero scores and "reject". o4-mini is its successor.
+_MODEL = "o4-mini"
 
 DIMENSIONS = [
     "technical_accuracy",
@@ -104,7 +107,10 @@ def _safe_parse(raw: str, context: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _call_o1(prompt: str, context: str) -> dict | None:
-    """Send a single user-role message to o1-mini and return parsed JSON or None."""
+    """Send a single user-role message to the model and return parsed JSON, or None if unparseable.
+
+    API failures raise, so an outage fails the evaluation instead of scoring zero.
+    """
     client = _get_client()
     start = time.monotonic()
     try:
@@ -113,15 +119,16 @@ def _call_o1(prompt: str, context: str) -> dict | None:
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
-        logger.exception("o1-mini API call failed for %s", context)
+        logger.exception("%s API call failed for %s", _MODEL, context)
         record_usage("openai", _MODEL, f"evaluate:{context}", status="error", error=str(exc))
-        return None
+        raise
 
     latency = time.monotonic() - start
     record_openai_chat(response, f"evaluate:{context}", latency_ms=latency * 1000)
     usage = response.usage
     logger.info(
-        "o1-mini call [%s]: latency=%.2fs prompt=%s completion=%s",
+        "%s call [%s]: latency=%.2fs prompt=%s completion=%s",
+        _MODEL,
         context,
         latency,
         usage.prompt_tokens if usage else "?",
@@ -133,7 +140,7 @@ def _call_o1(prompt: str, context: str) -> dict | None:
 
 
 def _call_o1_text(prompt: str, context: str) -> str:
-    """Send a single user-role message to o1-mini and return raw text."""
+    """Send a single user-role message to the model and return raw text. API failures raise."""
     client = _get_client()
     start = time.monotonic()
     try:
@@ -142,13 +149,13 @@ def _call_o1_text(prompt: str, context: str) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
-        logger.exception("o1-mini text call failed for %s", context)
+        logger.exception("%s text call failed for %s", _MODEL, context)
         record_usage("openai", _MODEL, f"evaluate:{context}", status="error", error=str(exc))
-        return ""
+        raise
 
     latency = time.monotonic() - start
     record_openai_chat(response, f"evaluate:{context}", latency_ms=latency * 1000)
-    logger.info("o1-mini text call [%s]: latency=%.2fs", context, latency)
+    logger.info("%s text call [%s]: latency=%.2fs", _MODEL, context, latency)
     return (response.choices[0].message.content or "").strip()
 
 
@@ -299,7 +306,7 @@ def _score_qa_pair(
     jd_text: str,
     question_number: int,
 ) -> dict[str, Any]:
-    """Call o1-mini to score a single Q&A pair. Returns scores + per_dimension_reasoning."""
+    """Call the model to score a single Q&A pair. Returns scores + per_dimension_reasoning."""
     prompt = f"""\
 You are an expert technical interview evaluator. Score the candidate's answer \
 to the interview question below on four dimensions, each on a scale of 0 to 10 \
@@ -387,7 +394,7 @@ def _generate_synthesis(
     recommendation: str,
     jd_text: str,
 ) -> dict[str, Any]:
-    """Call o1-mini to produce the narrative summary, strengths, and concerns."""
+    """Call the model to produce the narrative summary, strengths, and concerns."""
     qa_block = "\n\n".join(
         f"Q{i + 1}: {qa.get('question_text', '')}\n"
         f"Candidate Answer: {qa.get('answer_text', '') or '[No response]'}\n"
@@ -472,7 +479,7 @@ def _generate_candidate_email(
     concerns: list[str],
     jd_text: str,
 ) -> str:
-    """Call o1-mini to produce the candidate-facing post-interview email body.
+    """Call the model to produce the candidate-facing post-interview email body.
 
     Returns plain text. No numeric scores, no band decision.
     """
