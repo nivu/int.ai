@@ -34,6 +34,7 @@ PRICING: dict[tuple[str, str], dict[str, float]] = {
     ("openai", "gpt-4o-mini"): {"per_1m_input": 0.15, "per_1m_output": 0.60},
     ("openai", "gpt-4.1-mini"): {"per_1m_input": 0.40, "per_1m_output": 1.60},
     ("openai", "o1-mini"): {"per_1m_input": 1.10, "per_1m_output": 4.40},
+    ("openai", "o4-mini"): {"per_1m_input": 1.10, "per_1m_output": 4.40},
     ("openai", "text-embedding-3-small"): {"per_1m_input": 0.02, "per_1m_output": 0.0},
     ("deepgram", "nova-2"): {"per_minute": 0.0043},
     ("deepgram", "aura-luna-en"): {"per_1k_chars": 0.030},
@@ -165,7 +166,7 @@ def record_openai_chat(response: Any, operation: str, *, latency_ms: float | Non
 
 def _normalise_model(model: str) -> str:
     """OpenAI returns dated snapshots (gpt-4o-mini-2024-07-18); price by family."""
-    for family in ("gpt-4o-mini", "gpt-4.1-mini", "o1-mini", "text-embedding-3-small"):
+    for family in ("gpt-4o-mini", "gpt-4.1-mini", "o1-mini", "o4-mini", "text-embedding-3-small"):
         if model.startswith(family):
             return family
     return model
