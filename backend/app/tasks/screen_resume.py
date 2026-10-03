@@ -83,7 +83,7 @@ def screen_resume_task(self, application_id: str, hiring_post_id: str) -> dict:
         #    raw_markdown is set to the extracted text now; the LLM-parsed fields are
         #    filled in later once parse_resume() completes.
         upsert_resp = supabase.table("resume_data").upsert(
-            {"application_id": application_id, "raw_markdown": resume_text},
+            {"application_id": application_id, "raw_markdown": resume_text, "resume_text": resume_text},
             on_conflict="application_id",
         ).execute()
         resume_data_record = upsert_resp.data[0]

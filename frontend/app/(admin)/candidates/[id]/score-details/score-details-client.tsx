@@ -50,6 +50,7 @@ interface ScoreDetailsClientProps {
     } | null;
   };
   resumeData: {
+    resume_text: string | null; // original extracted text — what evidence quotes come from
     raw_markdown: string | null;
     parsed_name: string | null;
     parsed_skills: string[] | null;
@@ -385,7 +386,7 @@ export default function ScoreDetailsClient({
   const cutoffs = application.hiring_posts;
   const skillCounts = { direct: 0, implied: 0, missing: 0 };
   for (const s of skillDetails?.skills ?? []) skillCounts[matchTypeOf(s)] += 1;
-  const rawText = resumeData?.raw_markdown ?? null;
+  const rawText = resumeData?.resume_text || resumeData?.raw_markdown || null;
 
   return (
     <div className="space-y-5">

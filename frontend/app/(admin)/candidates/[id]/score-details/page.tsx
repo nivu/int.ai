@@ -23,7 +23,7 @@ export default async function ScoreDetailsPage({
   const { data: resumeData } = await supabase
     .from("resume_data")
     .select(
-      "raw_markdown, parsed_name, parsed_skills, parsed_experience, parsed_summary, skill_match_details, experience_match_details, culture_match_details"
+      "resume_text, raw_markdown, parsed_name, parsed_skills, parsed_experience, parsed_summary, skill_match_details, experience_match_details, culture_match_details"
     )
     .eq("application_id", id)
     .maybeSingle();
