@@ -82,9 +82,9 @@ Immediately after a candidate submits their application, the system
 automatically parses the resume into structured markdown and fields,
 runs a three-layer scoring pipeline (embedding similarity, LLM skill
 match, LLM experience match, LLM culture match) against the JD, and
-populates a standardized candidate table with scores. Candidates above
-the threshold are auto-advanced to interview; below are rejected. There
-is no manual-review band.
+populates a standardized candidate table with scores. Candidates whose
+overall score is at or above the threshold are auto-advanced to interview;
+below are rejected. There is no manual-review band.
 
 **Why this priority**: Automated screening is the core value proposition.
 It eliminates the manual bottleneck of reviewing hundreds of resumes.
