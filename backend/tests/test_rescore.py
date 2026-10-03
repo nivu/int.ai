@@ -81,6 +81,7 @@ def test_rescore_task_updates_scores_only():
     assert payload["overall_score"] == pytest.approx(0.692, abs=1e-4)
     assert result["overall_score"] == payload["overall_score"]
     sb.table.assert_called_once_with("resume_data")
+    assert sb.table.return_value.update.call_args.args[0]["resume_text"] == "resume"
 
 
 def test_rescore_module_has_no_email_or_session_side_effects():

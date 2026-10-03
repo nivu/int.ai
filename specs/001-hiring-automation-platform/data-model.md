@@ -186,6 +186,7 @@ interview_in_progress → interviewed → shortlisted → rejected → archived.
 | skill_match_details | jsonb | | Per-skill breakdown from LLM |
 | experience_match_details | jsonb | | LLM rationale |
 | culture_match_details | jsonb | | LLM rationale |
+| resume_text | text | | Original extracted resume text; evidence quotes come from it, so the score breakdown highlights against it (migration 029) |
 | parsing_error | text | | NULL if successful |
 | created_at | timestamptz | DEFAULT now() | |
 

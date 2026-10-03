@@ -62,6 +62,7 @@ def rescore_application_task(self, application_id: str) -> dict:
         })
 
         supabase.table("resume_data").update({
+            "resume_text": resume_text,
             "skill_match_details": skill_details,
             "experience_match_details": experience_details,
             "culture_match_details": culture_details,

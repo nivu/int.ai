@@ -9,5 +9,24 @@
 -- Railway URL), independent of app_config. Removing the dead function and
 -- the now-unused config table.
 
+-- Reproduce that out-of-band reassignment so a fresh database matches
+-- production (taken from a schema dump of production on 2026-10-02).
+-- Production already has these; on it this block is a no-op re-statement.
+CREATE OR REPLACE FUNCTION auto_screen_on_application_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO resume_data (application_id)
+    VALUES (NEW.id);
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_auto_screen_on_application_insert ON applications;
+CREATE TRIGGER trg_auto_screen_on_application_insert
+    AFTER INSERT ON applications
+    FOR EACH ROW EXECUTE FUNCTION auto_screen_on_application_insert();
+
 DROP FUNCTION IF EXISTS auto_trigger_screening();
 DROP TABLE IF EXISTS app_config;
