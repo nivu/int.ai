@@ -234,7 +234,7 @@ interview_in_progress → interviewed → shortlisted → rejected → archived.
 | id | uuid | PK | |
 | session_id | uuid | FK → InterviewSession, NOT NULL | |
 | question_number | integer | NOT NULL | 1-based order |
-| question_type | text | CHECK (foundational/project) | |
+| question_type | text | CHECK (foundational/project/custom/resume_project) | custom = recruiter-defined; resume_project = resume-anchored |
 | question_text | text | NOT NULL | |
 | answer_text | text | | Transcribed answer |
 | answer_start_ts | real | | Seconds from session start |
