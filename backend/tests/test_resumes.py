@@ -61,7 +61,7 @@ class _FakeSupabase:
         self.auth = MagicMock()
 
     def _sign(self, path, expires, options):
-        if path not in self.files and not path.startswith("exports/"):
+        if path not in self.files and not path.endswith("/resumes.zip"):
             raise RuntimeError(
                 "{'statusCode': 404, 'error': not_found, 'message': Object not found}"
             )
@@ -192,7 +192,8 @@ def test_export_zips_available_resumes_and_skips_missing():
     assert body["filename"] == "senior-ai-ml-engineer-resumes.zip"
 
     path, data, options = sb.bucket.upload.call_args.args
-    assert path == f"exports/{JOB}/resumes.zip"
+    assert path == f"{JOB}/resumes.zip"
+    sb.storage.from_.assert_any_call("exports")
     assert options["upsert"] == "true"
     names = zipfile.ZipFile(io.BytesIO(data)).namelist()
     assert names == ["Ravi K.pdf", "Ravi K (2).pdf"]

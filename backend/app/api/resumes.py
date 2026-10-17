@@ -22,6 +22,7 @@ logger = logging.getLogger("int.ai")
 router = APIRouter(tags=["resumes"])
 
 BUCKET = "resumes"
+EXPORT_BUCKET = "exports"
 LINK_SECONDS = 300
 _STAFF_ROLES = ["admin", "recruiter", "hiring_manager"]
 
@@ -102,8 +103,8 @@ def _missing(exc: Exception) -> bool:
     return "not_found" in str(exc) or "Object not found" in str(exc)
 
 
-def _sign(path: str, download_as: str) -> str:
-    response = supabase.storage.from_(BUCKET).create_signed_url(
+def _sign(path: str, download_as: str, bucket: str = BUCKET) -> str:
+    response = supabase.storage.from_(bucket).create_signed_url(
         path, LINK_SECONDS, {"download": download_as}
     )
     return response["signedURL"]
@@ -194,17 +195,17 @@ def export_resumes(job_id: str, authorization: str = Header(...)) -> dict:
     if included == 0:
         raise HTTPException(status_code=404, detail="No resumes available for this job")
 
-    export_path = f"exports/{job_id}/resumes.zip"
+    export_path = f"{job_id}/resumes.zip"
     filename = (
         f"{re.sub(r'[^a-z0-9]+', '-', post['title'].lower()).strip('-') or 'job'}-resumes.zip"
     )
     try:
-        storage.upload(
+        supabase.storage.from_(EXPORT_BUCKET).upload(
             export_path,
             buffer.getvalue(),
             {"content-type": "application/zip", "upsert": "true"},
         )
-        url = _sign(export_path, filename)
+        url = _sign(export_path, filename, EXPORT_BUCKET)
     except Exception as exc:
         logger.exception("Failed to store resume export for job %s", job_id)
         raise HTTPException(status_code=502, detail="Failed to build the resume zip") from exc

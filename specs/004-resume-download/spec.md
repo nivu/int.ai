@@ -77,7 +77,7 @@ columns in FR-007 and each record carries the candidate's values.
 - **FR-003**: `POST /api/v1/jobs/{job_id}/resume-export` MUST, for an allowed caller:
   - download every application's resume for the job with the service key,
   - build a zip with Python's standard `zipfile`, one entry per resume named `{candidate name}{ext}` (de-duplicated with ` (2)`, ` (3)`…),
-  - upsert it to the `resumes` bucket at `exports/{job_id}/resumes.zip`, overwriting any previous export, so at most one export file exists per job,
+  - upsert it to the private `exports` bucket at `{job_id}/resumes.zip` (spec 005 FR-004), overwriting any previous export, so at most one export file exists per job,
   - return `{url, filename, included, skipped, expires_in}` where `url` is a 300-second signed link that downloads as `{job title slug}-resumes.zip`.
 
   Applications with no resume or a missing file are skipped, not errors. When no
@@ -97,13 +97,13 @@ columns in FR-007 and each record carries the candidate's values.
   order: Name, Email, Phone, Current role, Current company, Years experience,
   Location, LinkedIn, Status, Overall %, Skill match %, Experience match %,
   Culture match %, Top skills, Applied. Formula-injection escaping still applies.
-- **FR-008**: No database migration and no `storage.objects` policy change. Existing
+- **FR-008**: No database migration and no `storage.objects` policy change (the `exports` bucket is created by spec 005's migration 033). Existing
   admin, recruiter, candidate and client flows are unchanged apart from the added
   buttons and CSV columns.
 
 ### Key Entities
 
-- **Export file**: `resumes/exports/{job_id}/resumes.zip` — one per job, overwritten on each export. Not referenced from any table.
+- **Export file**: `exports/{job_id}/resumes.zip` (bucket `exports`) — one per job, overwritten on each export. Not referenced from any table.
 
 ## Success Criteria *(mandatory)*
 
@@ -118,11 +118,11 @@ columns in FR-007 and each record carries the candidate's values.
 
 - `applications.resume_url` holds the path inside the `resumes` bucket (as written by the `/apply` form) and `resume_filename` the original upload name.
 - Resumes are at most 5 MB each (the `/apply` upload limit), so building a job's zip in memory is acceptable for current job sizes.
-- The export file sits in the same bucket as the resumes it copies, so it is exactly as protected as they are. The pre-existing `allow_authenticated_read` storage policy (see spec 003 Known Issues / open follow-up) affects both equally; this feature neither fixes nor widens it.
+- The export bucket, like the resume bucket, has no read policy for any browser role since spec 005; only the backend's service key and its signed links reach it.
 
 ## Out of Scope
 
-- Fixing the `allow_authenticated_read` storage policy.
+- Fixing the `allow_authenticated_read` storage policy (done in spec 005).
 - Resume preview in the browser, photo download, and download of interview recordings or transcripts.
 - Deleting old export files on a schedule (one file per job is overwritten instead).
 - A download count or audit table (structured logs only).

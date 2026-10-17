@@ -136,8 +136,9 @@ shared reports.
 | `interview_reports` | `share_token`, `share_expires_at`, `candidate_email_body`, `per_dimension_reasoning` |
 | `interview_qa` | `score_rationale` |
 
-Storage files behind `resume_url` / `photo_url` are only as protected as the
-production `storage.objects` policies (checked before release; not in any migration).
+Storage files behind `resume_url` / `photo_url` have no read policy for any
+browser role since migration 033 (spec 005); resumes reach clients only through
+spec 004's backend-signed links.
 
 ## Overlap with other paths
 
