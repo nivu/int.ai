@@ -359,8 +359,9 @@ whose reply-to is the client's address. Nothing in the job changes.
 
   The admin "Client access" card says so in one line: "Clients can see this job's
   candidates, screening scores, interview reports, recruiter notes and scoring settings."
-  Storage files behind `resume_url` / `photo_url` are only as protected as the
-  production `storage.objects` policies, which are checked before release.
+  Storage files behind `resume_url` / `photo_url` are not readable by clients (or
+  any signed-in user) directly: spec 005 removed every storage read policy, and
+  resumes are served only through spec 004's backend-signed links.
 
 ### Key Entities
 
