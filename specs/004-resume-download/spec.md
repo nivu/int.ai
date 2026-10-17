@@ -91,6 +91,7 @@ columns in FR-007 and each record carries the candidate's values.
 - **FR-006**: UI:
   - "Download resume" button on the admin candidate page and on `/client/jobs/[id]/candidates/[applicationId]`.
   - "Download all resumes" button on the admin job page and on `/client/jobs/[id]`, next to "Export CSV".
+  - A download icon in a "Resume" column on every row of the shared candidate table (admin All Candidates, admin job Candidates tab, and the client job page). It downloads that row's resume without opening the candidate page and shows "Not available" under the icon when the API returns an error.
   - While working, buttons are disabled and show progress; errors show the API's `detail`.
 - **FR-007**: The client CSV export (spec 003 FR-013) MUST have these columns in
   order: Name, Email, Phone, Current role, Current company, Years experience,

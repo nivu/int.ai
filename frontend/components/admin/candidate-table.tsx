@@ -26,6 +26,7 @@ import { ArrowUpDown, Search, Loader2, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { backendFetch } from "@/lib/api/backend";
 import CompareButton from "@/components/admin/compare-button";
+import { ResumeIconButton } from "@/components/shared/resume-download";
 import {
   SkillMatchPopover,
   ExperienceMatchPopover,
@@ -519,6 +520,13 @@ function buildColumns(
           })}
         </span>
       ),
+    },
+    // Resume download
+    {
+      id: "resume",
+      header: "Resume",
+      cell: ({ row }) => <ResumeIconButton applicationId={row.original.id} />,
+      enableSorting: false,
     },
     // Score Details / Re-screen action
     {
