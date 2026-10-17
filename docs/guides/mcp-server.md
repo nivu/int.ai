@@ -45,6 +45,9 @@ backend role."*
 | `get_pipeline_status` | Counts per stage for one job or every job |
 | `get_screening_status` | Whether resume screening has finished for an application |
 | `get_usage` | Estimated AI and voice spend over the last N days (default 30, up to 90), by day, provider, operation and job |
+| `list_client_access` | Clients with read-only access to a job (spec 003). Admin keys only |
+| `grant_client_access` | Give a client email read-only access to one job and **email them an invitation** (spec 003). Same checks as the job page's Client access card. Admin keys only |
+| `revoke_client_access` | Revoke a client's access to a job. Admin keys only |
 
 ## Configuration
 

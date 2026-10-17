@@ -1,27 +1,34 @@
 """MCP server definition: tools for jobs, candidates, and pipeline status.
 
 Every tool acts inside the org of the API key that authenticated the request
-(see ``app.mcp.auth``). Nothing here sends email.
+(see ``app.mcp.auth``). Only ``grant_client_access`` sends email (the client
+invitation).
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
+from fastapi import HTTPException
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from starlette.applications import Starlette
 
+from app.api.client_access import grant_access, list_grants, revoke_grant
 from app.config import settings
 from app.mcp.auth import MCP_SCOPE, ApiKeyVerifier
 from app.services.supabase import supabase as sb
 
 logger = logging.getLogger("int.ai")
+
+T = TypeVar("T")
 
 JobStatus = Literal["draft", "published", "closed", "archived"]
 ApplicationStatus = Literal[
@@ -105,7 +112,8 @@ mcp_server = MCPServer(
     name="int.ai",
     instructions=(
         "Hiring operations for one organisation: list/create jobs, review candidates, and read pipeline "
-        "status. IDs are UUIDs. Scores are fractions 0-1. Nothing here sends email."
+        "status, and share a job read-only with a client (admins only). IDs are UUIDs. Scores are "
+        "fractions 0-1. Only grant_client_access sends email: the invitation to the client."
     ),
     token_verifier=ApiKeyVerifier(),
     auth=AuthSettings(
@@ -580,6 +588,75 @@ def get_screening_status(application_id: str) -> dict[str, Any]:
         "experience_match_score": application.get("experience_match_score"),
         "culture_match_score": application.get("culture_match_score"),
     }
+
+
+# ---- Client access (spec 003) -------------------------------------------
+
+
+def _admin_actor() -> tuple[str, str]:
+    """Return (org_id, team_member_id); refuse unless the key's member is an active admin."""
+    org_id, member_id = _actor()
+    rows = sb.table("team_members").select("org_id, role, status").eq("id", member_id).limit(1).execute().data
+    if (
+        not rows
+        or rows[0].get("org_id") != org_id
+        or rows[0].get("role") != "admin"
+        or rows[0].get("status") != "active"
+    ):
+        raise ToolError("Only admins can manage client access")
+    return org_id, member_id
+
+
+def _client_access_call(fn: Callable[..., T], *args: Any) -> T:
+    """Run a shared client-access helper, turning its HTTP errors into tool errors."""
+    try:
+        return fn(*args)
+    except HTTPException as exc:
+        raise ToolError(str(exc.detail)) from exc
+
+
+@mcp_server.tool()
+def list_client_access(job_id: str) -> list[dict[str, Any]]:
+    """List the clients who currently have read-only access to a job. Admins only."""
+    org_id, _ = _admin_actor()
+    _org_job(org_id, job_id)
+    return _client_access_call(list_grants, job_id)
+
+
+@mcp_server.tool()
+def grant_client_access(job_id: str, email: str, client_company: str | None = None) -> dict[str, Any]:
+    """Give a client read-only access to one job and email them a sign-in link. Admins only.
+
+    The client signs in at /auth/login?type=client with an emailed code and sees only the
+    jobs shared with them: the job, its candidates, resume analysis, interview reports and
+    a CSV export. This sends an email to ``email``.
+    """
+    org_id, member_id = _admin_actor()
+    job = _org_job(org_id, job_id)
+    try:
+        email = TypeAdapter(EmailStr).validate_python(email)
+    except ValidationError as exc:
+        raise ToolError(f"Invalid email address: {email}") from exc
+    if client_company is not None and len(client_company) > 200:
+        raise ToolError("client_company must be at most 200 characters")
+    row, email_sent = _client_access_call(
+        grant_access, job_id, str(job.get("title", "")), email, client_company, member_id
+    )
+    logger.info("MCP grant_client_access job=%s grant=%s by=%s", job_id, row["id"], member_id)
+    return {
+        "grant": {k: row.get(k) for k in ("id", "hiring_post_id", "email", "client_company", "created_at")},
+        "email_sent": email_sent,
+    }
+
+
+@mcp_server.tool()
+def revoke_client_access(job_id: str, grant_id: str) -> dict[str, Any]:
+    """Revoke a client's access to a job (takes effect on their next request). Admins only."""
+    org_id, member_id = _admin_actor()
+    _org_job(org_id, job_id)
+    _client_access_call(revoke_grant, job_id, grant_id, member_id)
+    logger.info("MCP revoke_client_access job=%s grant=%s by=%s", job_id, grant_id, member_id)
+    return {"job_id": job_id, "grant_id": grant_id, "status": "revoked"}
 
 
 # ---------------------------------------------------------------------------

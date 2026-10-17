@@ -113,13 +113,9 @@ def _prepare_client_account(email: str) -> None:
         raise HTTPException(status_code=502, detail="Failed to prepare client account")
 
 
-@router.get("/jobs/{job_id}/client-access", response_model=ListClientGrantsResponse)
-async def list_client_access(
-    job_id: UUID, authorization: str = Header(...)
-) -> ListClientGrantsResponse:
-    job_id = str(job_id)
-    _admin_post(authorization, job_id)
-    rows = (
+def list_grants(job_id: str) -> list[dict]:
+    """Active grants on ``job_id``, newest first. Caller has checked admin access."""
+    return (
         supabase.table("job_client_access")
         .select(_GRANT_COLUMNS)
         .eq("hiring_post_id", job_id)
@@ -129,18 +125,17 @@ async def list_client_access(
         .data
         or []
     )
-    return ListClientGrantsResponse(items=[ClientGrantOut(**r) for r in rows])
 
 
-@router.post("/jobs/{job_id}/client-access", response_model=InviteClientResponse, status_code=201)
-async def invite_client(
-    job_id: UUID,
-    body: InviteClientRequest,
-    authorization: str = Header(...),
-) -> InviteClientResponse:
-    job_id = str(job_id)
-    member, post = _admin_post(authorization, job_id)
-    email = body.email.lower().strip()
+def grant_access(
+    job_id: str, job_title: str, email: str, client_company: str | None, member_id: str
+) -> tuple[dict, bool]:
+    """Grant ``email`` access to ``job_id`` and send the invite.
+
+    Caller has checked admin access. Returns ``(grant_row, email_sent)``.
+    Shared by the HTTP endpoint and the MCP tool.
+    """
+    email = email.lower().strip()
 
     existing = (
         supabase.table("job_client_access")
@@ -164,8 +159,8 @@ async def invite_client(
                 {
                     "hiring_post_id": job_id,
                     "email": email,
-                    "client_company": (body.client_company or "").strip() or None,
-                    "invited_by": member["id"],
+                    "client_company": (client_company or "").strip() or None,
+                    "invited_by": member_id,
                 }
             )
             .execute()
@@ -181,26 +176,19 @@ async def invite_client(
     try:
         email_service.send_client_job_invitation(
             email,
-            str(post.get("title", "")),
+            job_title,
             login_url=f"{settings.FRONTEND_URL.rstrip('/')}/auth/login?type=client",
         )
     except Exception:
         logger.exception("Client invitation email failed for %s", email)
         email_sent = False
 
-    logger.info("Client access granted id=%s job=%s by=%s", row["id"], job_id, member["id"])
-    return InviteClientResponse(
-        grant=ClientGrantOut(**{k: row.get(k) for k in ClientGrantOut.model_fields}),
-        email_sent=email_sent,
-    )
+    logger.info("Client access granted id=%s job=%s by=%s", row["id"], job_id, member_id)
+    return row, email_sent
 
 
-@router.delete("/jobs/{job_id}/client-access/{grant_id}")
-async def revoke_client_access(
-    job_id: UUID, grant_id: UUID, authorization: str = Header(...)
-) -> dict:
-    job_id, grant_id = str(job_id), str(grant_id)
-    member, _ = _admin_post(authorization, job_id)
+def revoke_grant(job_id: str, grant_id: str, member_id: str) -> None:
+    """Revoke grant ``grant_id`` on ``job_id``. Caller has checked admin access."""
     rows = (
         supabase.table("job_client_access")
         .select("id, revoked_at")
@@ -214,11 +202,46 @@ async def revoke_client_access(
     if not rows:
         raise HTTPException(status_code=404, detail="Client access not found")
     if rows[0].get("revoked_at"):
-        return {"status": "ok"}
+        return
     supabase.table("job_client_access").update({"revoked_at": datetime.now(UTC).isoformat()}).eq(
         "id", grant_id
     ).execute()
-    logger.info("Client access revoked id=%s job=%s by=%s", grant_id, job_id, member["id"])
+    logger.info("Client access revoked id=%s job=%s by=%s", grant_id, job_id, member_id)
+
+
+@router.get("/jobs/{job_id}/client-access", response_model=ListClientGrantsResponse)
+async def list_client_access(
+    job_id: UUID, authorization: str = Header(...)
+) -> ListClientGrantsResponse:
+    job_id = str(job_id)
+    _admin_post(authorization, job_id)
+    return ListClientGrantsResponse(items=[ClientGrantOut(**r) for r in list_grants(job_id)])
+
+
+@router.post("/jobs/{job_id}/client-access", response_model=InviteClientResponse, status_code=201)
+async def invite_client(
+    job_id: UUID,
+    body: InviteClientRequest,
+    authorization: str = Header(...),
+) -> InviteClientResponse:
+    job_id = str(job_id)
+    member, post = _admin_post(authorization, job_id)
+    row, email_sent = grant_access(
+        job_id, str(post.get("title", "")), body.email, body.client_company, member["id"]
+    )
+    return InviteClientResponse(
+        grant=ClientGrantOut(**{k: row.get(k) for k in ClientGrantOut.model_fields}),
+        email_sent=email_sent,
+    )
+
+
+@router.delete("/jobs/{job_id}/client-access/{grant_id}")
+async def revoke_client_access(
+    job_id: UUID, grant_id: UUID, authorization: str = Header(...)
+) -> dict:
+    job_id, grant_id = str(job_id), str(grant_id)
+    member, _ = _admin_post(authorization, job_id)
+    revoke_grant(job_id, grant_id, member["id"])
     return {"status": "ok"}
 
 
