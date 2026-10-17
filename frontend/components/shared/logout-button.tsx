@@ -5,15 +5,19 @@ import { createClient } from "@/lib/supabase/client";
 
 interface LogoutButtonProps {
   className?: string;
+  redirectTo?: string;
 }
 
-export default function LogoutButton({ className }: LogoutButtonProps) {
+export default function LogoutButton({
+  className,
+  redirectTo = "/",
+}: LogoutButtonProps) {
   const router = useRouter();
 
   async function handleLogout() {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/");
+    router.push(redirectTo);
   }
 
   return (

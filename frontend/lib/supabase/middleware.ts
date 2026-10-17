@@ -87,6 +87,11 @@ export async function updateSession(request: NextRequest) {
   if (pathname.startsWith("/portal")) {
     if (!user) return redirectTo("/auth/login?type=candidate");
   }
+
+  // Client portal — requires Supabase auth
+  if (pathname === "/client" || pathname.startsWith("/client/")) {
+    if (!user) return redirectTo("/auth/login?type=client");
+  }
   // /interview routes are intentionally public — invite-token auth is handled
   // at the page level so candidates can enter directly from their invite email.
 

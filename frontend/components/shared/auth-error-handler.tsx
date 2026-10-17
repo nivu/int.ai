@@ -21,9 +21,14 @@ export function AuthErrorHandler() {
         Object.keys(localStorage).forEach((key) => {
           if (key.startsWith("sb-")) localStorage.removeItem(key);
         });
+        const path = window.location.pathname;
+        if (path === "/client" || path.startsWith("/client/")) {
+          router.replace("/auth/login?type=client");
+          return;
+        }
         const isCandidate =
-          window.location.pathname.startsWith("/portal") ||
-          window.location.pathname.startsWith("/interview");
+          path.startsWith("/portal") ||
+          path.startsWith("/interview");
         router.replace(isCandidate ? "/auth/login?type=candidate" : "/auth/login");
       }
     });

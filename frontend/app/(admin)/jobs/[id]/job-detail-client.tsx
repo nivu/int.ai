@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import JobCandidateManagementSection from "@/components/admin/job-candidate-management-section";
+import { ClientAccessCard } from "@/components/admin/client-access-card";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -375,6 +376,8 @@ export default function JobDetailClient({
           </CardContent>
         </Card>
       )}
+
+      <ClientAccessCard jobId={post.id} />
 
       {/* Description */}
       <Card>

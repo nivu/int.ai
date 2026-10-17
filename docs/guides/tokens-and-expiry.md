@@ -119,6 +119,32 @@ def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
 
 ---
 
+## 7. Client Portal Sign-In (spec 003)
+
+### Client Email Code and Session
+- **What**: Clients sign in at `/auth/login?type=client` with the same Supabase
+  email 6-digit code as candidates; no password is ever issued
+- **Expires**: Same as candidate OTP (section 6) for the code; the resulting session
+  uses the standard Supabase access token (`jwt_expiry = 3600`) with automatic
+  refresh (section 1)
+- **Invite email**: links to the sign-in page, not a one-time magic link, so it does
+  not expire
+- **On expiry or sign-out**: on `/client*`, middleware and `AuthErrorHandler` send
+  the user to `/auth/login?type=client`; the portal's Sign Out button goes there too
+- **Revocation**: takes effect on the client's next request, even inside a live
+  session (access is checked in the database on every query)
+- **Client marker**: client access requires the server-only app_metadata flag
+  `int_ai_client`, set to the invited email when an admin invites it (it must match
+  the account's current email). Setting a password
+  later does not change it
+- **Pre-registered address**: if the invited email already had an account, the
+  invite marks it, replaces its password with an unknowable one and deletes its
+  sessions, so its refresh tokens stop working at once. An access token already
+  issued to that account stays valid until it expires (at most 1 hour,
+  `jwt_expiry = 3600`); this is accepted (spec 003, Edge Cases)
+
+---
+
 ## Summary Table
 
 | Item | Expires After | Auto-Refresh? | Manual Refresh? |
@@ -131,6 +157,7 @@ def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
 | **Report Share Link** | 7 days | ❌ No | ✅ Yes (new link) |
 | **Storage Signed URL** | 1 hour | ❌ No | ✅ Yes (new URL) |
 | **Email OTP** | 10 minutes | ❌ No | ✅ Yes (resend) |
+| **Client sign-in code** | Same as Email OTP | ❌ No | ✅ Yes (resend) |
 
 ---
 
