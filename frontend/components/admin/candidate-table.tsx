@@ -82,13 +82,15 @@ export interface ApplicationRecord {
 export interface CandidateTableProps {
   data: ApplicationRecord[];
   hiringPostId?: string;
+  readOnly?: boolean;
+  detailHref?: (applicationId: string) => string;
 }
 
 // ---------------------------------------------------------------------------
 // Status styling
 // ---------------------------------------------------------------------------
 
-const statusConfig: Record<
+export const statusConfig: Record<
   ApplicationStatus,
   { label: string; className: string }
 > = {
@@ -270,8 +272,12 @@ function ReScreenButton({
 // Column definitions
 // ---------------------------------------------------------------------------
 
+const defaultDetailHref = (applicationId: string) => `/candidates/${applicationId}`;
+
 function buildColumns(
   showJobColumn: boolean,
+  readOnly: boolean = false,
+  detailHref: (applicationId: string) => string = defaultDetailHref,
 ): ColumnDef<ApplicationRecord, unknown>[] {
   const cols: ColumnDef<ApplicationRecord, unknown>[] = [
     // Select checkbox
@@ -303,7 +309,7 @@ function buildColumns(
       header: ({ column }) => <SortableHeader label="Name" column={column} />,
       cell: ({ getValue, row }) => (
         <Link
-          href={`/candidates/${row.original.id}`}
+          href={detailHref(row.original.id)}
           className="font-medium text-primary hover:underline"
         >
           {getValue<string>()}
@@ -538,6 +544,9 @@ function buildColumns(
     },
   );
 
+  if (readOnly) {
+    return cols.filter((c) => c.id !== "select" && c.id !== "score_details");
+  }
   return cols;
 }
 
@@ -548,6 +557,8 @@ function buildColumns(
 export default function CandidateTable({
   data,
   hiringPostId,
+  readOnly = false,
+  detailHref = defaultDetailHref,
 }: CandidateTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "created_at", desc: true },
@@ -558,7 +569,10 @@ export default function CandidateTable({
 
   const showJobColumn = !hiringPostId;
 
-  const columns = useMemo(() => buildColumns(showJobColumn), [showJobColumn]);
+  const columns = useMemo(
+    () => buildColumns(showJobColumn, readOnly, detailHref),
+    [showJobColumn, readOnly, detailHref],
+  );
 
   // Apply status filter
   const filteredData = useMemo(() => {
@@ -583,7 +597,7 @@ export default function CandidateTable({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getRowId: (row) => row.id,
-    enableRowSelection: true,
+    enableRowSelection: !readOnly,
   });
 
   const selectedCount = Object.keys(rowSelection).length;
@@ -793,7 +807,7 @@ export default function CandidateTable({
       </div>
 
       {/* Bulk action bar */}
-      {selectedCount > 0 && (
+      {!readOnly && selectedCount > 0 && (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-2">
           <span className="text-sm font-medium">
             {selectedCount} selected

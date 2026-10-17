@@ -416,6 +416,79 @@ def send_team_invitation(
     return response["id"]
 
 
+def send_client_job_invitation(
+    to_email: str,
+    job_title: str,
+    login_url: str,
+) -> str:
+    """Tell a client they have read-only access to a job post.
+
+    Returns the Resend message ID.
+    """
+    subject = f'You\'ve been given access to "{job_title}" on int.ai'
+    body = f"""\
+<html>
+<body style="font-family: sans-serif; color: #1a1a1a;">
+  <h2>You've been given access to a job on int.ai</h2>
+  <p>You can now review candidates for <strong>{html.escape(job_title)}</strong>.</p>
+  <p><a href="{html.escape(login_url)}" style="display: inline-block; padding: 10px 20px;
+  background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px;">View candidates</a></p>
+  <p>Sign in with this email address — we'll send you a 6-digit code.</p>
+  <br/>
+  <p>— The int.ai Team</p>
+</body>
+</html>"""
+
+    response = resend.Emails.send(
+        {
+            "from": FROM_ADDRESS,
+            "to": [to_email],
+            "subject": subject,
+            "html": body,
+        }
+    )
+    return response["id"]
+
+
+def send_client_change_request(
+    to_emails: list[str],
+    job_title: str,
+    client_email: str,
+    client_company: str | None,
+    message: str,
+) -> str:
+    """Forward a client's change request for a job post to its staff.
+
+    Replies go to the client. Returns the Resend message ID.
+    """
+    sender = html.escape(client_email)
+    if client_company:
+        sender = f"{sender} ({html.escape(client_company)})"
+    message_html = html.escape(message).replace("\n", "<br>")
+    subject = f'Change request for "{job_title}"'
+    body = f"""\
+<html>
+<body style="font-family: sans-serif; color: #1a1a1a;">
+  <p>{sender} requested a change to <strong>{html.escape(job_title)}</strong>:</p>
+  <blockquote style="margin: 0; padding: 8px 16px; border-left: 3px solid #ddd;">{message_html}</blockquote>
+  <p>Reply to this email to answer them.</p>
+  <br/>
+  <p>— int.ai</p>
+</body>
+</html>"""
+
+    response = resend.Emails.send(
+        {
+            "from": FROM_ADDRESS,
+            "to": to_emails,
+            "subject": subject,
+            "html": body,
+            "reply_to": client_email,
+        }
+    )
+    return response["id"]
+
+
 def send_custom_email(
     to_email: str,
     subject: str,
