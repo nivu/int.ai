@@ -41,7 +41,7 @@ export default async function ClientJobPage({
   const { data: applications } = await supabase
     .from("applications")
     .select(
-      "id,hiring_post_id,candidate_id,status,embedding_score,skill_match_score,experience_match_score,culture_match_score,overall_score,created_at,candidate:candidates(id,full_name,email),resume_data:resume_data(parsed_summary,parsed_experience,parsed_skills,skill_match_details,experience_match_details,culture_match_details)",
+      "id,hiring_post_id,candidate_id,status,embedding_score,skill_match_score,experience_match_score,culture_match_score,overall_score,created_at,candidate:candidates(id,full_name,email,phone,current_role,current_company,years_experience,location,linkedin_url),resume_data:resume_data(parsed_summary,parsed_experience,parsed_skills,skill_match_details,experience_match_details,culture_match_details)",
     )
     .eq("hiring_post_id", id)
     .order("overall_score", { ascending: false, nullsFirst: false });
