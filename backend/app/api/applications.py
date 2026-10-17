@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -83,11 +84,11 @@ async def submit_application(body: SubmitApplicationRequest) -> SubmitApplicatio
         logger.exception("Failed to upsert candidate")
         raise HTTPException(status_code=500, detail=f"Failed to save candidate: {exc}") from exc
 
-    # 2. Verify hiring post exists and is published
+    # 2. Verify hiring post exists, is published and has not passed its closing date
     try:
         post_resp = (
             sb.table("hiring_posts")
-            .select("status")
+            .select("status, closes_at")
             .eq("id", body.hiring_post_id)
             .limit(1)
             .execute()
@@ -96,6 +97,9 @@ async def submit_application(body: SubmitApplicationRequest) -> SubmitApplicatio
             raise HTTPException(status_code=404, detail="Position not found.")
         if post_resp.data[0].get("status") != "published":
             raise HTTPException(status_code=403, detail="This position is not currently accepting applications.")
+        closes_at = post_resp.data[0].get("closes_at")
+        if closes_at and datetime.fromisoformat(closes_at) < datetime.now(UTC):
+            raise HTTPException(status_code=403, detail="This position is no longer accepting applications.")
     except HTTPException:
         raise
     except Exception as exc:
