@@ -5,6 +5,10 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
+function isPast(timestamp: string | null): boolean {
+  return timestamp != null && new Date(timestamp).getTime() < Date.now();
+}
+
 function Notice({ title, message }: { title: string; message: string }) {
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
@@ -47,11 +51,11 @@ export default async function ApplyPage({ params }: PageProps) {
 
   const { data: hiringPost, error } = await supabase
     .from("hiring_posts")
-    .select("id, title, department, location, description, status, share_slug")
+    .select("id, title, department, location, description, status, share_slug, closes_at")
     .eq("share_slug", slug)
     .single();
 
-  if (error || !hiringPost || hiringPost.status !== "published") {
+  if (error || !hiringPost || hiringPost.status !== "published" || isPast(hiringPost.closes_at)) {
     return (
       <Notice
         title="This job has been closed"

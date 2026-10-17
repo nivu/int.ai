@@ -41,7 +41,11 @@ class _FakeSupabase:
         self.calls: list = []
 
     def table(self, name):
-        data = {"candidates": [{"id": "cand-1"}], "hiring_posts": [self.post]}.get(name, [])
+        if name == "applications":
+            # First query is the duplicate check (none), then the insert.
+            inserted = any(c[0] == "applications" and c[1] == "select" for c in self.calls)
+            return _Query(name, [{"id": "app-1"}] if inserted else [], self.calls)
+        data = {"candidates": [{"id": "cand-1"}], "hiring_posts": [self.post]}[name]
         return _Query(name, data, self.calls)
 
 
@@ -64,7 +68,7 @@ def test_past_closing_date_is_refused_before_any_application_is_written():
     res, sb = _submit({"status": "published", "closes_at": _iso(-timedelta(hours=1))})
     assert res.status_code == 403
     assert res.json()["detail"] == "This position is no longer accepting applications."
-    assert not [c for c in sb.calls if c[0] == "applications"]
+    assert not [c for c in sb.calls if c[0] in ("applications", "candidates")]
 
 
 def test_closed_status_is_refused():
@@ -74,5 +78,6 @@ def test_closed_status_is_refused():
 
 def test_future_or_missing_closing_date_passes_the_check():
     for closes_at in (None, _iso(timedelta(days=1))):
-        _, sb = _submit({"status": "published", "closes_at": closes_at})
-        assert [c for c in sb.calls if c[0] == "applications"]
+        res, _ = _submit({"status": "published", "closes_at": closes_at})
+        assert res.status_code == 201
+        assert res.json()["application_id"] == "app-1"
