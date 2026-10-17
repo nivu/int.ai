@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DownloadResumeButton } from "@/components/shared/resume-download";
 import { Textarea } from "@/components/ui/textarea";
 import InterviewReportView from "@/components/admin/interview-report";
 import { backendFetch } from "@/lib/api/backend";
@@ -121,14 +122,17 @@ export default function CandidateDetailClient({
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold">
-          {application.candidate?.full_name || resumeData?.parsed_name || "Candidate"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {hiringPost?.title ?? "Unknown position"} &mdash;{" "}
-          <Badge variant="secondary">{application.status}</Badge>
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {application.candidate?.full_name || resumeData?.parsed_name || "Candidate"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {hiringPost?.title ?? "Unknown position"} &mdash;{" "}
+            <Badge variant="secondary">{application.status}</Badge>
+          </p>
+        </div>
+        <DownloadResumeButton applicationId={application.id} />
       </div>
 
       {/* Manual screening banner and button */}

@@ -294,7 +294,7 @@ whose reply-to is the client's address. Nothing in the job changes.
   - **Interview report:** no override card, no AI-summary fetch, and no AI Interview Summary card.
   - **Score details:** no rescore control.
 - **FR-013**: The job page MUST offer a CSV export of all candidates for the job,
-  generated in the browser. Fields that start with `= + - @`, a tab or a carriage
+  generated in the browser, with the columns listed in spec 004 FR-007. Fields that start with `= + - @`, a tab or a carriage
   return MUST be prefixed with `'` to block formula injection.
 - **FR-014**: `POST /api/v1/client/jobs/{job_id}/change-request` MUST:
   - confirm eligibility by checking that `job_id` is in
@@ -334,6 +334,8 @@ whose reply-to is the client's address. Nothing in the job changes.
 - **Visible in the portal**:
   - Job public fields: title, department, location, description, required skills, experience range, status. The three cutoffs are shown in the candidate score details.
   - Candidate name, email, phone and LinkedIn (a clickable link only when it starts with `http(s)://`).
+  - In the CSV export: current role, current company, years of experience and location (spec 004 FR-007).
+  - The original resume file, through the signed-link download in spec 004.
   - Application status and the four screening scores.
   - Parsed resume fields, `resume_text` / `raw_markdown`, and match details.
   - Interview Q&A with per-dimension scores, and the interview report.
@@ -350,7 +352,7 @@ whose reply-to is the client's address. Nothing in the job changes.
   accepted for v1):
   - `hiring_posts`: `scoring_weights`, `screening_threshold`, `education_requirements`, `interview_template_id`, `created_by`, `share_slug`
   - `applications`: `recruiter_notes`, `recruiter_override`, `decision`, `screening_error`, `screening_failed_at`, `resume_url`, `resume_filename`
-  - `candidates`: `auth_user_id`, `photo_url`, and `current_role`, `current_company`, `years_experience`, `location` (the candidate page fetches these four but does not display them)
+  - `candidates`: `auth_user_id`, `photo_url`
   - `resume_data`: `embedding`, `parsed_email`, `parsed_projects`
   - `interview_reports`: `share_token`, `share_expires_at`, `candidate_email_body`, `per_dimension_reasoning`
   - `interview_qa`: `score_rationale`
@@ -464,10 +466,11 @@ Found while implementing on 2026-10-17.
 
 - Clients editing jobs, moving candidates between stages, adding notes, or
   overriding decisions.
-- Resume file download. No `storage.objects` policy exists in any migration,
+- Resume file download in v1. No `storage.objects` policy exists in any migration,
   the production storage policies have drifted and are unverified, and no
-  staff download exists to mirror. The parsed resume and the extracted resume
-  text are shown instead.
+  staff download existed to mirror. Added later by spec 004
+  (`specs/004-resume-download/spec.md`), through backend-signed links that do not
+  rely on storage policies.
 - The AI interview summary in the client view. The existing summary fetch is
   broken (the call sends no token and gets a 422), and each view would make a
   paid LLM call.
