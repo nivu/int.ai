@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import JobCandidateManagementSection from "@/components/admin/job-candidate-management-section";
 import { ClientAccessCard } from "@/components/admin/client-access-card";
+import { DownloadAllResumesButton } from "@/components/shared/resume-download";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -298,7 +299,8 @@ export default function JobDetailClient({
             {post.location ? ` · ${post.location}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
+          <DownloadAllResumesButton jobId={post.id} />
           <Button variant="outline" onClick={() => setEditing(true)}>
             Edit
           </Button>

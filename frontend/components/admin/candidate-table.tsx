@@ -63,6 +63,12 @@ export interface ApplicationRecord {
     id: string;
     full_name: string;
     email: string;
+    phone?: string | null;
+    current_role?: string | null;
+    current_company?: string | null;
+    years_experience?: number | null;
+    location?: string | null;
+    linkedin_url?: string | null;
   };
   resume_data: {
     parsed_summary: string | null;

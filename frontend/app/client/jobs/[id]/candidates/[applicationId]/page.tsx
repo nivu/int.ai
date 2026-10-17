@@ -9,6 +9,7 @@ import { statusConfig, type ApplicationStatus } from "@/components/admin/candida
 import InterviewReportView from "@/components/admin/interview-report";
 import ScoreDetailsClient from "@/app/(admin)/candidates/[id]/score-details/score-details-client";
 import { ResumeSummary } from "@/components/client/resume-summary";
+import { DownloadResumeButton } from "@/components/shared/resume-download";
 
 export default async function ClientCandidatePage({
   params,
@@ -83,14 +84,17 @@ export default async function ClientCandidatePage({
         Back to {app.hiring_posts?.title ?? "job"}
       </Link>
 
-      <div>
-        <h1 className="text-2xl font-bold">
-          {candidate?.full_name || resumeData?.parsed_name || "Candidate"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {app.hiring_posts?.title ?? "Unknown position"} &mdash;{" "}
-          <Badge variant="secondary">{status?.label ?? app.status}</Badge>
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {candidate?.full_name || resumeData?.parsed_name || "Candidate"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {app.hiring_posts?.title ?? "Unknown position"} &mdash;{" "}
+            <Badge variant="secondary">{status?.label ?? app.status}</Badge>
+          </p>
+        </div>
+        <DownloadResumeButton applicationId={app.id} />
       </div>
 
       <Tabs defaultValue="resume">

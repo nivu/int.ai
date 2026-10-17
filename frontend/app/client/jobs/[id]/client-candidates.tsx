@@ -3,6 +3,7 @@
 import CandidateTable, { type ApplicationRecord } from "@/components/admin/candidate-table";
 import { ExportCsvButton } from "@/components/client/export-csv-button";
 import { RequestChangeDialog } from "@/components/client/request-change-dialog";
+import { DownloadAllResumesButton } from "@/components/shared/resume-download";
 
 export default function ClientCandidates({
   jobId,
@@ -17,8 +18,9 @@ export default function ClientCandidates({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Candidates</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-start gap-2">
           <ExportCsvButton rows={data} jobTitle={jobTitle} />
+          <DownloadAllResumesButton jobId={jobId} />
           <RequestChangeDialog jobId={jobId} />
         </div>
       </div>
