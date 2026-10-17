@@ -323,6 +323,11 @@ whose reply-to is the client's address. Nothing in the job changes.
   new objects and the `ir_anon_share_select` guard.
 - **FR-017**: Existing admin, recruiter, candidate portal, anonymous `/apply`,
   interview and shared-report flows MUST behave exactly as before.
+- **FR-018**: The hosted MCP server MUST expose `list_client_access`,
+  `grant_client_access` and `revoke_client_access`. They MUST call the same
+  grant/list/revoke helpers as the FR-015 endpoints, MUST refuse unless the API
+  key's team member is an active admin, and MUST act only on jobs in the key's org.
+  `grant_client_access` sends the client invitation email.
 
 ### Data Visible to Clients (decision)
 
