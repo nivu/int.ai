@@ -83,14 +83,15 @@ def _admin_post(authorization: str, job_id: str) -> tuple[dict, dict]:
 def _prepare_client_account(email: str) -> None:
     """Make sure ``email`` has a confirmed auth account marked as a client.
 
-    Creates it with the server-only ``int_ai_client`` app_metadata marker; an
+    Creates it with the server-only ``int_ai_client`` app_metadata marker (set
+    to the invited email, binding it to that address); an
     existing account is fine. Then ``prepare_client_account`` (migration 032)
     marks a pre-existing account, replaces its password and ends its sessions.
     Never calls ``list_users()``.
     """
     try:
         supabase.auth.admin.create_user(
-            {"email": email, "email_confirm": True, "app_metadata": {"int_ai_client": True}}
+            {"email": email, "email_confirm": True, "app_metadata": {"int_ai_client": email}}
         )
     except Exception as exc:
         if not (

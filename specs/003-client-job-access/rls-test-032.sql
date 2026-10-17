@@ -19,7 +19,7 @@
 --   O2: staff S2, and admin A2.
 --   Every auth user is seeded the way GoTrue creates them: a non-empty bcrypt
 --   encrypted_password (GoTrue stores one even for passwordless accounts) and
---   provider app_metadata. "marker" = raw_app_meta_data.int_ai_client = true.
+--   provider app_metadata. "marker" = raw_app_meta_data.int_ai_client = the account's lower-cased email.
 --   Grants on J: C (confirmed, marker), C2 (unconfirmed, marker), C3
 --       (confirmed, marker, also K's candidate), C4 (confirmed, NO marker: an
 --       account registered before the invite, with a live session), A2 (staff,
@@ -74,11 +74,11 @@ INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, e
   ('00000032-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin-a@rls032.test',    extensions.crypt('pw-a',  extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}'),                       -- A
   ('00000032-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'recruiter-r@rls032.test', extensions.crypt('pw-r',  extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}'),                       -- R
   ('00000032-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'staff-s2@rls032.test',   extensions.crypt('pw-s2', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}'),                       -- S2
-  ('00000032-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'Client-C@RLS032.test',   extensions.crypt('pw-c',  extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":true}'),  -- C (mixed case: matching must lower-case)
-  ('00000032-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'client-c2@rls032.test',  extensions.crypt('pw-c2', extensions.gen_salt('bf')), NULL,  '{"provider":"email","providers":["email"],"int_ai_client":true}'),  -- C2 unconfirmed
-  ('00000032-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'client-c3@rls032.test',  extensions.crypt('pw-c3', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":true}'),  -- C3
+  ('00000032-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'Client-C@RLS032.test',   extensions.crypt('pw-c',  extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":"client-c@rls032.test"}'),  -- C (mixed case: matching must lower-case)
+  ('00000032-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'client-c2@rls032.test',  extensions.crypt('pw-c2', extensions.gen_salt('bf')), NULL,  '{"provider":"email","providers":["email"],"int_ai_client":"client-c2@rls032.test"}'),  -- C2 unconfirmed
+  ('00000032-0000-0000-0000-000000000006', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'client-c3@rls032.test',  extensions.crypt('pw-c3', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":"client-c3@rls032.test"}'),  -- C3
   ('00000032-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'client-c4@rls032.test',  extensions.crypt('pw-c4', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}'),                       -- C4 no marker (pre-registered)
-  ('00000032-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin-a2@rls032.test',   extensions.crypt('pw-a2', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":true}');  -- A2 staff, marker present
+  ('00000032-0000-0000-0000-000000000008', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'admin-a2@rls032.test',   extensions.crypt('pw-a2', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"int_ai_client":"admin-a2@rls032.test"}');  -- A2 staff, marker present
 
 -- C4 is signed in: one session with one refresh token.
 INSERT INTO auth.sessions (id, user_id, created_at) VALUES
@@ -340,7 +340,7 @@ SELECT pg_temp.expect('prepare: C4 has a session before', (SELECT count(*) FROM 
 SELECT pg_temp.expect('prepare: C4 has a refresh token before', (SELECT count(*) FROM auth.refresh_tokens WHERE user_id = '00000032-0000-0000-0000-000000000007'), 1);
 SELECT pg_temp.is('prepare: pre-registered C4 -> prepared', public.prepare_client_account('client-c4@rls032.test'), 'prepared');
 SELECT pg_temp.expect('prepare: C4 marker set',
-  (SELECT count(*) FROM auth.users WHERE id = '00000032-0000-0000-0000-000000000007' AND raw_app_meta_data->>'int_ai_client' = 'true'), 1);
+  (SELECT count(*) FROM auth.users WHERE id = '00000032-0000-0000-0000-000000000007' AND raw_app_meta_data->>'int_ai_client' = 'client-c4@rls032.test'), 1);
 SELECT pg_temp.expect('prepare: C4 provider app_metadata kept',
   (SELECT count(*) FROM auth.users WHERE id = '00000032-0000-0000-0000-000000000007' AND raw_app_meta_data->>'provider' = 'email'), 1);
 SELECT pg_temp.expect('prepare: C4 password changed',
@@ -457,6 +457,17 @@ SELECT pg_temp.expect_error('anon: INSERT applications on published J (pre-exist
   ARRAY['42P17']);
 
 RESET ROLE;
+
+-- Marker is bound to the invited address: a marked client whose email changes
+-- to another granted address must not inherit that grant.
+INSERT INTO job_client_access (hiring_post_id, email) VALUES ('00000032-0000-0000-0000-000000000042', 'client-k-only@rls032.test');
+UPDATE auth.users SET email = 'client-k-only@rls032.test' WHERE id = '00000032-0000-0000-0000-000000000004';
+SELECT pg_temp.expect('email change: C with a moved email gets no posts',
+  (SELECT count(*) FROM public.client_post_ids_for_user('00000032-0000-0000-0000-000000000004')), 0);
+SELECT pg_temp.is('email change: prepare re-prepares a mismatched marker', public.prepare_client_account('client-k-only@rls032.test'), 'prepared');
+SELECT pg_temp.expect('email change: marker now bound to the new address',
+  (SELECT count(*) FROM auth.users WHERE id = '00000032-0000-0000-0000-000000000004' AND raw_app_meta_data->>'int_ai_client' = 'client-k-only@rls032.test'), 1);
+
 DO $$ BEGIN RAISE NOTICE 'ALL CHECKS PASSED'; END $$;
 
 ROLLBACK;

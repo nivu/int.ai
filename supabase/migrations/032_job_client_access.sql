@@ -9,7 +9,9 @@
 --
 -- job_client_access is the sole authority. Eligibility is decided in one place,
 -- client_post_ids_for_user(): email-confirmed auth account carrying the
--- server-only marker raw_app_meta_data.int_ai_client = true, no team_members
+-- server-only marker raw_app_meta_data.int_ai_client equal to the account's
+-- current lower-cased email (binding the marker to the invited address, so a
+-- marked account that later changes its email loses access), no team_members
 -- row, and an active (revoked_at IS NULL) grant on the post.
 -- All functions are SECURITY DEFINER with search_path pinned (the 002 pattern).
 --
@@ -64,7 +66,7 @@ LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public AS $$
   WHERE jca.revoked_at IS NULL
     AND jca.email = lower(u.email)
     AND u.email_confirmed_at IS NOT NULL
-    AND (u.raw_app_meta_data->>'int_ai_client') = 'true'
+    AND (u.raw_app_meta_data->>'int_ai_client') = lower(u.email)
     AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = p_user_id);
 $$;
 REVOKE EXECUTE ON FUNCTION public.client_post_ids_for_user(uuid) FROM PUBLIC, anon, authenticated;
@@ -93,11 +95,11 @@ BEGIN
   IF EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_id = v_user.id) THEN
     RETURN 'staff';
   END IF;
-  IF (v_user.raw_app_meta_data->>'int_ai_client') = 'true' THEN
+  IF (v_user.raw_app_meta_data->>'int_ai_client') = v_email THEN
     RETURN 'ready';
   END IF;
   UPDATE auth.users
-     SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"int_ai_client": true}'::jsonb,
+     SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('int_ai_client', v_email),
          encrypted_password = extensions.crypt(encode(extensions.gen_random_bytes(32), 'hex'), extensions.gen_salt('bf', 10)),
          phone = NULL,
          phone_confirmed_at = NULL

@@ -134,7 +134,8 @@ def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
 - **Revocation**: takes effect on the client's next request, even inside a live
   session (access is checked in the database on every query)
 - **Client marker**: client access requires the server-only app_metadata flag
-  `int_ai_client = true`, set when an admin invites the email. Setting a password
+  `int_ai_client`, set to the invited email when an admin invites it (it must match
+  the account's current email). Setting a password
   later does not change it
 - **Pre-registered address**: if the invited email already had an account, the
   invite marks it, replaces its password with an unknowable one and deletes its

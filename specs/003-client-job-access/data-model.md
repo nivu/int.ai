@@ -18,7 +18,8 @@ This feature adds a fifth path next to the four in spec 002:
 A client is not a stored role. A user is a client for a post when **all** hold:
 
 - `auth.users.email_confirmed_at IS NOT NULL`
-- `auth.users.raw_app_meta_data->>'int_ai_client' = 'true'` (server-only marker;
+- `auth.users.raw_app_meta_data->>'int_ai_client' = lower(auth.users.email)` (server-only
+  marker bound to the invited address;
   only the service role can write `app_metadata`. Set by the invite's
   `create_user` or by `prepare_client_account()`. The password column is not
   consulted: Supabase Auth stores a hash on every account, passwordless or not.)
@@ -61,7 +62,7 @@ and `extensions.*` (pgcrypto) schema-qualified.
 | `client_visible_application_ids()` | `SETOF uuid` — applications on those posts | default |
 | `client_visible_candidate_ids()` | `SETOF uuid` — candidates of those applications | default |
 | `client_visible_session_ids()` | `SETOF uuid` — interview sessions of those applications | default |
-| `prepare_client_account(p_email text)` | `text` — on `lower(btrim(p_email))`: `missing` (no auth user), `staff` (has a `team_members` row; unchanged), `ready` (already marked; unchanged), or `prepared` (marker merged into `raw_app_meta_data`, `encrypted_password` replaced by a random bcrypt hash, `phone`/`phone_confirmed_at` cleared, non-`email` `auth.identities` rows and all `auth.mfa_factors` rows deleted, `auth.sessions` rows deleted, `auth.refresh_tokens` cascading). | `service_role` only (revoked from `PUBLIC`, `anon`, `authenticated`). Used by the backend invite endpoint. |
+| `prepare_client_account(p_email text)` | `text` — on `lower(btrim(p_email))`: `missing` (no auth user), `staff` (has a `team_members` row; unchanged), `ready` (marker already equals this email; unchanged), or `prepared` (marker set to the email in `raw_app_meta_data`, `encrypted_password` replaced by a random bcrypt hash, `phone`/`phone_confirmed_at` cleared, non-`email` `auth.identities` rows and all `auth.mfa_factors` rows deleted, `auth.sessions` rows deleted, `auth.refresh_tokens` cascading). | `service_role` only (revoked from `PUBLIC`, `anon`, `authenticated`). Used by the backend invite endpoint. |
 | `client_sessions_for_application(p_application_id uuid)` | `TABLE (id, application_id, status, started_at, ended_at, duration_seconds, questions_asked, terminated_at_question, timer_remaining_at_termination real, created_at)`, newest first; empty unless the application is client-visible | default |
 
 `client_sessions_for_application` is the only way a client sees session

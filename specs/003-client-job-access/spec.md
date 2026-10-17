@@ -131,10 +131,12 @@ whose reply-to is the client's address. Nothing in the job changes.
   sign-ups (`mailer_autoconfirm = true`), so "email confirmed" alone does not prove
   inbox ownership. Two controls apply:
   1. The invite endpoint creates the auth user for the email (confirmed, no
-     password, `app_metadata.int_ai_client = true`) before saving the grant, so the
+     password, `app_metadata.int_ai_client = <invited email>`) before saving the grant, so the
      address cannot afterwards be registered or switched to by someone else.
   2. Client access requires the server-only marker
-     `auth.users.raw_app_meta_data.int_ai_client = true`. Only the service role can
+     `auth.users.raw_app_meta_data.int_ai_client`, equal to the account's current
+     lower-cased email (so a marked account that changes its email loses access
+     rather than inheriting another address's grant). Only the service role can
      write `app_metadata`; a user cannot set it through sign-up or profile updates.
      If someone registered the address before the invite, their account has no
      marker, so the invite prepares it with `prepare_client_account()`: it sets the
@@ -210,7 +212,8 @@ whose reply-to is the client's address. Nothing in the job changes.
   `SET search_path = public`, and EXECUTE is granted to `service_role` only. A post
   is returned when the user:
   - has an email-confirmed auth account;
-  - carries the server-only marker `raw_app_meta_data->>'int_ai_client' = 'true'`;
+  - carries the server-only marker `raw_app_meta_data->>'int_ai_client'` equal to its
+    current lower-cased email;
   - has **no `team_members` row**;
   - has a lower-cased email with an active grant on the post.
 
@@ -242,7 +245,7 @@ whose reply-to is the client's address. Nothing in the job changes.
 - **FR-007**: Before saving a grant, the invite endpoint MUST prepare a client
   auth account for the email:
   - It calls `auth.admin.create_user({email, email_confirm: true, app_metadata:
-    {int_ai_client: true}})` with no password. An "already registered"
+    {int_ai_client: email}})` with no password. An "already registered"
     (`email_exists`) error counts as success.
   - It then calls `prepare_client_account(email)` (migration 032;
     `SECURITY DEFINER`, `SET search_path = public`, EXECUTE for `service_role`

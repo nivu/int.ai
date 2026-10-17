@@ -152,7 +152,7 @@ def test_invite_lowercases_email_creates_auth_user_and_sends():
     assert resp.json()["email_sent"] is True
     assert resp.json()["grant"]["id"] == GRANT
     sb.auth.admin.create_user.assert_called_once_with(
-        {"email": "client@acme.com", "email_confirm": True, "app_metadata": {"int_ai_client": True}}
+        {"email": "client@acme.com", "email_confirm": True, "app_metadata": {"int_ai_client": "client@acme.com"}}
     )
     sb.auth.admin.list_users.assert_not_called()
     [prepare] = sb.called("rpc", "prepare_client_account")
