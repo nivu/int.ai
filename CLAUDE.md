@@ -16,6 +16,7 @@ frontend/          # Next.js (TypeScript, App Router)
 │   ├── (admin)/   # Admin dashboard routes
 │   ├── (candidate)/ # Candidate portal routes
 │   ├── apply/     # Public application form
+│   ├── client/    # Client portal (read-only job access, spec 003)
 │   └── auth/
 ├── components/
 │   ├── ui/        # shadcn/ui
@@ -120,6 +121,7 @@ See `.specify/memory/constitution.md` for full principles. Key rules:
 
 - 001-hiring-automation-platform: AI hiring automation (resume screening + voice interviews)
 - 002-multi-org-isolation: Org isolation, RLS `SECURITY DEFINER` model, admin/recruiter roles (retroactively specified from shipped work)
+- 003-client-job-access: Read-only client access to specific jobs (`job_client_access`, migration 032, `/client` portal, admin "Client access" card)
 - 2026-09-02 restructure: root/`backend/` report files archived to `docs/archive/`, `backend/` one-off scripts moved to `backend/scripts/`, docs split into `architecture/guides/operations`
 
 <!-- MANUAL ADDITIONS START -->

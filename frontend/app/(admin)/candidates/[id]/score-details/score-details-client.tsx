@@ -37,6 +37,7 @@ interface ActiveItem {
 
 interface ScoreDetailsClientProps {
   applicationId: string;
+  readOnly?: boolean;
   application: {
     embedding_score: number | null;
     skill_match_score: number | null;
@@ -325,6 +326,7 @@ export default function ScoreDetailsClient({
   applicationId,
   application,
   resumeData,
+  readOnly = false,
 }: ScoreDetailsClientProps) {
   const [active, setActive] = useState<ActiveItem | null>(null);
   const [rescreening, setRescreening] = useState(false);
@@ -390,7 +392,7 @@ export default function ScoreDetailsClient({
 
   return (
     <div className="space-y-5">
-    {needsRescreen && !rescreenDone && (
+    {!readOnly && needsRescreen && !rescreenDone && (
       <div className="flex items-center justify-between rounded-lg border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 px-4 py-3 text-sm">
         <p className="text-yellow-800 dark:text-yellow-200">
           {rescreenError ??

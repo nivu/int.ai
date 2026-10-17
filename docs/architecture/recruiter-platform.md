@@ -126,6 +126,39 @@ flowchart TB
     RT1 -->|"push to browser"| RECRUITER
 ```
 
+### Client portal
+
+Read-only access for a person at a client company to specific job posts, without
+an org or a `team_members` row. Spec: `specs/003-client-job-access/`.
+
+- **Grant**: an org admin uses the "Client access" card on `/jobs/[id]`
+  (`components/admin/client-access-card.tsx`, hidden for recruiters). It calls
+  `GET/POST /api/v1/jobs/{id}/client-access` and
+  `DELETE /api/v1/jobs/{id}/client-access/{grant_id}` (`backend/app/api/client_access.py`).
+  The invite pre-creates a confirmed, passwordless auth user, inserts a
+  `job_client_access` row and emails a link to `/auth/login?type=client` (Resend).
+  Revoke sets `revoked_at`.
+- **Sign-in**: `/auth/login?type=client` uses the same email 6-digit code flow as
+  candidates and lands on `/client`. Middleware and `AuthErrorHandler` send
+  signed-out `/client*` requests there too. Staff visiting `/client` go to `/dashboard`.
+- **Pages** (`frontend/app/client/`): `/client` (granted jobs),
+  `/client/jobs/[id]` (job + read-only candidate table + CSV export + "Request a
+  change"), `/client/jobs/[id]/candidates/[applicationId]` (resume analysis and
+  interview report). They read Supabase directly under RLS, and every page first
+  restricts itself to `rpc("client_visible_post_ids")`. Admin components are reused
+  with `readOnly`.
+- **Data access**: migration `032` adds SELECT-only client policies on
+  `hiring_posts`, `applications`, `candidates`, `resume_data`, `interview_qa` and
+  `interview_reports`; none on `interview_sessions` (metadata comes from the
+  `client_sessions_for_application` RPC). Eligibility lives in
+  `client_post_ids_for_user()`. See `specs/003-client-job-access/data-model.md`.
+- **Request a change**: `POST /api/v1/client/jobs/{id}/change-request` emails the
+  job creator and the org's active admins with `reply_to` set to the client. It
+  changes no data.
+- **Eligibility** requires the server-only
+  `app_metadata.int_ai_client` marker, set on invite; a pre-existing account is
+  prepared by `prepare_client_account()` (spec 003, FR-003, FR-007).
+
 ---
 
 ## Recruiter Workflow: Step-by-Step
@@ -361,6 +394,15 @@ erDiagram
         text[] concerns
         jsonb dimension_averages
     }
+    job_client_access {
+        uuid id PK
+        uuid hiring_post_id FK
+        text email
+        text client_company
+        uuid invited_by FK
+        timestamptz created_at
+        timestamptz revoked_at
+    }
 
     organizations ||--o{ team_members : "has"
     organizations ||--o{ interview_templates : "owns"
@@ -373,4 +415,6 @@ erDiagram
     interview_sessions ||--|| interview_templates : "uses"
     interview_sessions ||--o{ interview_qa : "contains"
     interview_sessions ||--|| interview_reports : "generates"
+    hiring_posts ||--o{ job_client_access : "shared via"
+    team_members ||--o{ job_client_access : "invites"
 ```

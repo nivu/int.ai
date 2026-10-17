@@ -63,3 +63,4 @@ This creates `specs/NNN-slug/` and the matching branch. Fill in `spec.md` from
 |---|---|
 | [001-hiring-automation-platform](../specs/001-hiring-automation-platform/spec.md) | Shipped — screening + voice interviews |
 | [002-multi-org-isolation](../specs/002-multi-org-isolation/spec.md) | As-built, retroactively specified — org isolation, RLS, roles |
+| [003-client-job-access](../specs/003-client-job-access/spec.md) | Implemented — read-only client access to specific jobs via `/client` |

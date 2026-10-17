@@ -147,7 +147,10 @@ WHERE schemaname = 'public'
     ('interview_sessions','is_candidate_select'), ('interview_sessions','is_candidate_update'),
     ('interview_qa','iqa_staff_select'),
     ('interview_reports','ir_staff_select'), ('interview_reports','ir_anon_share_select'),
-    ('invite_tokens','it_admin_all'), ('invite_tokens','it_self_select')
+    ('invite_tokens','it_admin_all'), ('invite_tokens','it_self_select'),
+    ('hiring_posts','hp_client_select'), ('applications','app_client_select'),
+    ('candidates','cand_client_select'), ('resume_data','rd_client_select'),
+    ('interview_qa','iqa_client_select'), ('interview_reports','ir_client_select')
   )
 
 ORDER BY 1, 3 DESC, 2;

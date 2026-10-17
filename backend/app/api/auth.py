@@ -81,3 +81,25 @@ def _resolve_admin_member(authorization: str = Header(...)) -> dict:
         raise HTTPException(status_code=403, detail="Team member is not active")
 
     return member
+
+
+def _resolve_client_user(authorization: str = Header(...)) -> dict:
+    """Validate the caller's JWT and return ``{"user_id", "email"}``.
+
+    Does not decide client eligibility (confirmed email, int_ai_client
+    marker, not staff, active grant) — ``client_post_ids_for_user`` in migration 032 does.
+    """
+    from app.services.supabase import supabase as sb
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+
+    try:
+        user_resp = sb.auth.get_user(token)
+        user = user_resp.user
+        user_id = str(user.id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    return {"user_id": user_id, "email": (user.email or "").lower()}

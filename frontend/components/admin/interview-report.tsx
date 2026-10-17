@@ -80,6 +80,7 @@ interface InterviewReportProps {
   qaItems: QAItem[];
   audioUrl: string;
   onOverride?: (payload: OverridePayload) => void;
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +407,7 @@ export default function InterviewReportView({
   audioUrl,
   reports = [],
   onOverride,
+  readOnly = false,
 }: InterviewReportProps) {
   const [notes, setNotes] = useState("");
   const [overrideRec, setOverrideRec] = useState("no_override");
@@ -432,11 +434,12 @@ export default function InterviewReportView({
   }, []);
 
   useEffect(() => {
+    if (readOnly) return;
     if (completedSession?.id) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-mount; state is set after await
       fetchSummary(completedSession.id);
     }
-  }, [completedSession?.id, fetchSummary]);
+  }, [completedSession?.id, fetchSummary, readOnly]);
 
   const latestSession = sessions[0] ?? null;
 
@@ -486,41 +489,43 @@ export default function InterviewReportView({
     <div className="space-y-6">
 
       {/* ── AI Interview Summary (on-demand, above everything) ──────── */}
-      <Card className="border-blue-200 bg-blue-50/30 dark:border-blue-800 dark:bg-blue-950/20">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <span className="text-blue-600 dark:text-blue-400">✨</span>
-            AI Interview Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!completedSession ? (
-            <p className="text-sm text-muted-foreground">
-              Interview summary will be available after the interview is completed.
-            </p>
-          ) : isSummaryLoading ? (
-            <div className="space-y-3 animate-pulse">
-              <p className="text-sm text-muted-foreground">Generating AI summary...</p>
-              <div className="h-4 bg-muted rounded w-3/4" />
-              <div className="h-4 bg-muted rounded w-1/2" />
-              <div className="h-4 bg-muted rounded w-2/3" />
-            </div>
-          ) : summaryError ? (
-            <div className="space-y-3">
-              <p className="text-sm text-red-600 dark:text-red-400">{summaryError}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => completedSession && fetchSummary(completedSession.id)}
-              >
-                Retry
-              </Button>
-            </div>
-          ) : summary ? (
-            <MarkdownSummary content={summary} />
-          ) : null}
-        </CardContent>
-      </Card>
+      {!readOnly && (
+        <Card className="border-blue-200 bg-blue-50/30 dark:border-blue-800 dark:bg-blue-950/20">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <span className="text-blue-600 dark:text-blue-400">✨</span>
+              AI Interview Summary
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!completedSession ? (
+              <p className="text-sm text-muted-foreground">
+                Interview summary will be available after the interview is completed.
+              </p>
+            ) : isSummaryLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <p className="text-sm text-muted-foreground">Generating AI summary...</p>
+                <div className="h-4 bg-muted rounded w-3/4" />
+                <div className="h-4 bg-muted rounded w-1/2" />
+                <div className="h-4 bg-muted rounded w-2/3" />
+              </div>
+            ) : summaryError ? (
+              <div className="space-y-3">
+                <p className="text-sm text-red-600 dark:text-red-400">{summaryError}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => completedSession && fetchSummary(completedSession.id)}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : summary ? (
+              <MarkdownSummary content={summary} />
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start gap-4">
@@ -608,38 +613,40 @@ export default function InterviewReportView({
       )}
 
       {/* ── Recruiter Override ─────────────────────────────────────── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Recruiter Override</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Textarea
-            placeholder="Add notes about this interview..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={3}
-          />
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="text-sm font-medium" htmlFor="override-select">
-              Override Recommendation
-            </label>
-            <select
-              id="override-select"
-              value={overrideRec}
-              onChange={(e) => setOverrideRec(e.target.value)}
-              className="rounded-md border bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="no_override">No Override</option>
-              <option value="advance">Advance</option>
-              <option value="borderline">Borderline</option>
-              <option value="reject">Reject</option>
-            </select>
-          </div>
-          <Button onClick={handleSave} size="sm">
-            Save Override
-          </Button>
-        </CardContent>
-      </Card>
+      {!readOnly && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Recruiter Override</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              placeholder="Add notes about this interview..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="text-sm font-medium" htmlFor="override-select">
+                Override Recommendation
+              </label>
+              <select
+                id="override-select"
+                value={overrideRec}
+                onChange={(e) => setOverrideRec(e.target.value)}
+                className="rounded-md border bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="no_override">No Override</option>
+                <option value="advance">Advance</option>
+                <option value="borderline">Borderline</option>
+                <option value="reject">Reject</option>
+              </select>
+            </div>
+            <Button onClick={handleSave} size="sm">
+              Save Override
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

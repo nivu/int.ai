@@ -31,6 +31,7 @@ Two access paths exist and must not be conflated:
 | **Self** | `candidates.auth_user_id = auth.uid()` | candidate portal |
 | **Token** | `share_token` + expiry | external report viewers |
 | **Anonymous** | `auth.uid() IS NULL` + `share_slug` | public `/apply` page |
+| **Client** | active `job_client_access` grant on the post, via `client_post_ids_for_user()` | `/client` portal — see `specs/003-client-job-access/data-model.md` (migration `032`) |
 
 ## Access-control functions
 
@@ -51,6 +52,14 @@ All five are declared `LANGUAGE sql SECURITY DEFINER STABLE SET search_path = pu
 The pinned `search_path` is a security requirement (FR-003), not a style choice.
 
 ## Policy matrix
+
+> **Stale (flagged 2026-10-17, not yet corrected):** this matrix no longer matches
+> the migrations. It still lists `it_recruiter_select` and `hp_recruiter_select`
+> (both dropped by `019`/`022`, replaced by `it_recruiter_all` and
+> `hp_recruiter_all`), and it is missing `hp_candidate_select` (`020`),
+> `app_anon_insert` and `cand_anon_insert` (`023`), and `hpp_staff_all` on
+> `hiring_post_private`. The client policies added by `032` are listed in
+> `specs/003-client-job-access/data-model.md`, not here.
 
 | Table | Policy | Command | Predicate |
 |---|---|---|---|
@@ -74,7 +83,7 @@ The pinned `search_path` is a security requirement (FR-003), not a style choice.
 | | `is_candidate_select` / `is_candidate_update` | SELECT / UPDATE | candidate self via `auth_user_id` |
 | `interview_qa` | `iqa_staff_select` | SELECT | staff on parent session |
 | `interview_reports` | `ir_staff_select` | SELECT | staff on parent session |
-| | `ir_anon_share_select` | SELECT | `share_token IS NOT NULL AND (share_expires_at IS NULL OR share_expires_at > now())` |
+| | `ir_anon_share_select` | SELECT | `share_token IS NOT NULL AND (share_expires_at IS NULL OR share_expires_at > now())` — **032 adds `auth.uid() IS NULL AND`** in front, so signed-in users no longer match it (spec 003) |
 | `invite_tokens` | `it_admin_all` | ALL | `is_org_admin(org_id)` |
 | | `it_self_select` | SELECT | `email = (SELECT email FROM auth.users WHERE id = auth.uid())` |
 | `api_keys` | *(no policies)* | — | RLS enabled, nothing granted: service-role backend only (MCP auth, Settings → API Keys). Migration `025` |

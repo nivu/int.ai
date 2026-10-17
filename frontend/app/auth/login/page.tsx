@@ -19,7 +19,9 @@ export default function LoginPage() {
 function LoginForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const isCandidate = searchParams.get("type") === "candidate";
+  const type = searchParams.get("type");
+  const isCandidate = type === "candidate";
+  const isClient = type === "client";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -81,18 +83,22 @@ function LoginForm() {
     }
     // Candidates arrive via the interview invitation link — send them straight to
     // the interview page so they don't have to hunt for the "Start Interview" button.
-    router.push("/interview");
+    router.push(isClient ? "/client" : "/interview");
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{isCandidate ? "Candidate Portal" : "Admin Login"}</CardTitle>
+          <CardTitle>
+            {isClient ? "Client Access" : isCandidate ? "Candidate Portal" : "Admin Login"}
+          </CardTitle>
           <CardDescription>
-            {isCandidate
-              ? "Enter your email to receive a one-time code"
-              : "Sign in to manage hiring"}
+            {isClient
+              ? "Sign in with the email address your job was shared with. We'll email you a 6-digit code."
+              : isCandidate
+                ? "Enter your email to receive a one-time code"
+                : "Sign in to manage hiring"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -102,7 +108,7 @@ function LoginForm() {
             </div>
           )}
 
-          {isCandidate ? (
+          {isCandidate || isClient ? (
             !otpSent ? (
               <form onSubmit={handleSendOtp} className="space-y-4">
                 <div className="space-y-2">
