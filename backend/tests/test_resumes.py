@@ -62,12 +62,16 @@ class _FakeSupabase:
 
     def _sign(self, path, expires, options):
         if path not in self.files and not path.startswith("exports/"):
-            raise RuntimeError("Object not found")
+            raise RuntimeError(
+                "{'statusCode': 404, 'error': not_found, 'message': Object not found}"
+            )
         return {"signedURL": f"https://signed/{path}?download={options['download']}"}
 
     def _download(self, path):
         if path not in self.files:
-            raise RuntimeError("Object not found")
+            raise RuntimeError(
+                "{'statusCode': 404, 'error': not_found, 'message': Object not found}"
+            )
         return self.files[path]
 
     def table(self, name):
@@ -212,3 +216,38 @@ def test_unsafe_names_are_cleaned():
     assert _safe("A/B: C", "candidate") == "AB C"
     assert _safe("../..", "candidate") == "candidate"
     assert _safe(None, "candidate") == "candidate"
+
+
+def test_storage_outage_is_502_not_404():
+    sb_files = {APPLICATION["resume_url"]: b"%PDF"}
+    sb = _FakeSupabase(
+        {"applications": [APPLICATION], "hiring_posts": [POST], "team_members": STAFF},
+        (),
+        sb_files,
+    )
+    sb.bucket.create_signed_url.side_effect = RuntimeError("connection reset")
+    with _client(sb) as client:
+        res = client.get(f"/api/v1/applications/{APP_ID}/resume", headers=HEADERS)
+    assert res.status_code == 502
+
+
+def test_export_storage_outage_is_502_and_writes_nothing():
+    sb = _FakeSupabase(
+        {
+            "applications": [
+                {
+                    "id": "a1",
+                    "resume_url": "p/1.pdf",
+                    "resume_filename": "x.pdf",
+                    "candidate": {"full_name": "R"},
+                }
+            ],
+            "hiring_posts": [POST],
+            "team_members": STAFF,
+        },
+    )
+    sb.bucket.download.side_effect = RuntimeError("connection reset")
+    with _client(sb) as client:
+        res = client.post(f"/api/v1/jobs/{JOB}/resume-export", headers=HEADERS)
+    assert res.status_code == 502
+    sb.bucket.upload.assert_not_called()

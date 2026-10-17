@@ -97,6 +97,11 @@ def _safe(name: str | None, fallback: str) -> str:
     return cleaned[:100] or fallback
 
 
+def _missing(exc: Exception) -> bool:
+    """True when storage says the object does not exist (404 ``not_found``)."""
+    return "not_found" in str(exc) or "Object not found" in str(exc)
+
+
 def _sign(path: str, download_as: str) -> str:
     response = supabase.storage.from_(BUCKET).create_signed_url(
         path, LINK_SECONDS, {"download": download_as}
@@ -105,7 +110,7 @@ def _sign(path: str, download_as: str) -> str:
 
 
 @router.get("/applications/{application_id}/resume", response_model=ResumeLinkResponse)
-async def download_resume(application_id: str, authorization: str = Header(...)) -> dict:
+def download_resume(application_id: str, authorization: str = Header(...)) -> dict:
     user_id = _caller(authorization)
     rows = (
         supabase.table("applications")
@@ -129,8 +134,11 @@ async def download_resume(application_id: str, authorization: str = Header(...))
         filename += ext
     try:
         url = _sign(path, filename)
-    except Exception:
-        logger.warning("Resume file missing for application %s", application_id, exc_info=True)
+    except Exception as exc:
+        if not _missing(exc):
+            logger.exception("Failed to sign resume for application %s", application_id)
+            raise HTTPException(status_code=502, detail="Failed to prepare the resume") from exc
+        logger.warning("Resume file missing for application %s", application_id)
         raise HTTPException(status_code=404, detail="Resume not available")
 
     logger.info("resume_download user=%s access=%s application=%s", user_id, role, application_id)
@@ -138,7 +146,7 @@ async def download_resume(application_id: str, authorization: str = Header(...))
 
 
 @router.post("/jobs/{job_id}/resume-export", response_model=ResumeExportResponse)
-async def export_resumes(job_id: str, authorization: str = Header(...)) -> dict:
+def export_resumes(job_id: str, authorization: str = Header(...)) -> dict:
     user_id = _caller(authorization)
     post = _post(job_id)
     role = _access(user_id, post)
@@ -165,7 +173,12 @@ async def export_resumes(job_id: str, authorization: str = Header(...)) -> dict:
                 continue
             try:
                 content = storage.download(path)
-            except Exception:
+            except Exception as exc:
+                if not _missing(exc):
+                    logger.exception("Failed to read resume for application %s", application["id"])
+                    raise HTTPException(
+                        status_code=502, detail="Failed to build the resume zip"
+                    ) from exc
                 logger.warning("Resume file missing for application %s", application["id"])
                 skipped += 1
                 continue
