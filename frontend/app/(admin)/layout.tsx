@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/components/shared/logout-button";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { AuthErrorHandler } from "@/components/shared/auth-error-handler";
 import { OrgProvider } from "@/components/admin/org-context";
+import { NavLink } from "@/components/admin/nav-link";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
@@ -56,13 +56,7 @@ export default async function AdminLayout({
         </div>
         <nav className="flex flex-col gap-1">
           {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
-            >
-              {item.label}
-            </Link>
+            <NavLink key={item.href} href={item.href} label={item.label} />
           ))}
         </nav>
         <div className="mt-auto pt-4 border-t space-y-2">
