@@ -8,12 +8,17 @@ function PendingIndicator() {
   const { pending } = useLinkStatus();
   // Always rendered at a fixed size so toggling it never shifts the layout.
   return (
-    <Loader2
-      aria-hidden
-      className={`h-4 w-4 animate-spin text-muted-foreground transition-opacity ${
-        pending ? "opacity-100" : "opacity-0"
-      }`}
-    />
+    <>
+      <Loader2
+        aria-hidden
+        className={`h-4 w-4 animate-spin text-muted-foreground transition-opacity ${
+          pending ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <span role="status" className="sr-only">
+        {pending ? "Loading" : ""}
+      </span>
+    </>
   );
 }
 

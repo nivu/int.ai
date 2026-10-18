@@ -43,9 +43,9 @@ new project in `ap-southeast-1` Singapore.
 |---|---|---|
 | Schema (34 migrations) | `supabase/migrations/` | `supabase db push` to the new project, or included in the dump |
 | Extensions: `vector`, `pg_net`, `pg_cron` | migrations 001/009/034 | Created by the migrations |
-| Table data, including `app_config` (`backend_url`) | live database | `pg_dump --data-only` → restore |
+| Table data | live database | `pg_dump --data-only` → restore |
 | Auth users (IDs, password hashes) | `auth` schema | Dumped with the data. **User IDs must be kept**: `team_members.user_id` and `candidates.auth_user_id` reference them |
-| Screening trigger (`auto_trigger_screening` → `pg_net` → `/api/v1/webhooks/application-created`) | migrations 009/016 | Created by the migrations; the URL comes from `app_config` |
+| Screening webhook: dashboard Database Webhook `application-created` (`supabase_functions.http_request` → `/api/v1/webhooks/application-created`, URL hardcoded) | not in any migration (see 018) | Included in the schema dump; needs Database Webhooks enabled on the new project first |
 | Cron job `auto-close-expired-posts` | migration 034 | Re-run the `cron.schedule` from 034 after restore and check `cron.job` |
 | Storage buckets `resumes`, `photos`, `exports` + policies | migration 033 | Buckets/policies from the migration; **objects copied separately** |
 | Realtime publication (jobs and candidates live lists) | **not in any migration** (enabled by hand in the dashboard) | List the tables in `supabase_realtime` on the old project and re-enable the same ones |
@@ -107,11 +107,15 @@ and tell admins and the client in advance.
 
 ### Step 4: Cut-over (downtime starts)
 
-1. Stop writes: scale the Railway `celery` and `LiveKit` services to 0 and put
-   the frontend into maintenance (or pause the Netlify site).
+1. Stop writes: stop the Railway API (`int.ai`) and scale `celery` and
+   `LiveKit` to 0, put the frontend into maintenance (or pause the Netlify
+   site), and unschedule the old project's `auto-close-expired-posts` cron
+   (`select cron.unschedule('auto-close-expired-posts')`).
 2. Final dump and restore of data and auth users, then the storage sync.
 3. Check row and object counts against the old project.
-4. Re-run the `cron.schedule` from migration 034 and confirm `app_config.backend_url`.
+4. Re-run the `cron.schedule` from migration 034 on the new project and check
+   that the `application-created` Database Webhook points at
+   `https://intai-production.up.railway.app/api/v1/webhooks/application-created`.
 5. Update the env vars on Railway (×3) and Netlify, then redeploy Railway and rebuild Netlify.
 6. Bring `celery` and `LiveKit` back up.
 
