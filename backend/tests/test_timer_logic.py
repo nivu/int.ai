@@ -13,6 +13,8 @@ import logging
 import sys
 from typing import Any
 
+import pytest
+
 # Configure logging to output to console
 logging.basicConfig(
     level=logging.INFO,
@@ -81,7 +83,7 @@ class TimerLogicTest:
         self.events_sent.clear()
 
 
-async def test_timer_freeze_resume_logic() -> bool:
+async def _check_timer_freeze_resume_logic() -> bool:
     """
     Test the timer freeze/resume logic without requiring a full LiveKit session.
     
@@ -207,7 +209,7 @@ async def test_timer_freeze_resume_logic() -> bool:
         return False
 
 
-async def test_arm_timer_function_signature() -> bool:
+async def _check_arm_timer_function_signature() -> bool:
     """
     Test that _arm_timer function has the correct signature with event_type parameter.
     
@@ -221,7 +223,7 @@ async def test_arm_timer_function_signature() -> bool:
         # Read the entrypoint.py file to verify function signature
         import os
         entrypoint_path = os.path.join(
-            os.path.dirname(__file__), "entrypoint.py"
+            os.path.dirname(__file__), "..", "app", "interview", "entrypoint.py"
         )
         
         with open(entrypoint_path) as f:
@@ -274,11 +276,11 @@ async def run_all_timer_tests() -> bool:
     results = []
     
     # Run logic tests
-    result1 = await test_timer_freeze_resume_logic()
+    result1 = await _check_timer_freeze_resume_logic()
     results.append(result1)
     
     # Run static analysis
-    result2 = await test_arm_timer_function_signature()
+    result2 = await _check_arm_timer_function_signature()
     results.append(result2)
     
     # Final summary
@@ -296,6 +298,16 @@ async def run_all_timer_tests() -> bool:
     logger.info("\n")
     
     return all(results)
+
+
+@pytest.mark.asyncio
+async def test_timer_freeze_resume_logic() -> None:
+    assert await _check_timer_freeze_resume_logic()
+
+
+@pytest.mark.asyncio
+async def test_arm_timer_function_signature() -> None:
+    assert await _check_arm_timer_function_signature()
 
 
 # Synchronous wrapper for startup hook
