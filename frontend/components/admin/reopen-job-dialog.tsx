@@ -61,14 +61,20 @@ export function ReopenJobDialog({
     setError(null);
     try {
       const supabase = createClient();
-      const { error: updateError } = await supabase
+      // Only while still closed, so a job archived meanwhile stays archived.
+      const { data: updated, error: updateError } = await supabase
         .from("hiring_posts")
         .update({
           status: "published",
           closes_at: noClosingDate ? null : new Date(date).toISOString(),
         })
-        .eq("id", jobId);
+        .eq("id", jobId)
+        .eq("status", "closed")
+        .select("id");
       if (updateError) throw new Error(updateError.message);
+      if (!updated?.length) {
+        throw new Error("This job is no longer closed. Refresh the page to see its status.");
+      }
       setOpen(false);
       router.refresh();
     } catch (err) {

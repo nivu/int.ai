@@ -26,7 +26,7 @@ closing date (or no closing date), and the job is published again.
 
 - **FR-001**: The job detail header (`frontend/app/(admin)/jobs/[id]/job-detail-client.tsx`) MUST show a "Reopen" button only when the job's status is `closed`.
 - **FR-002**: "Reopen" MUST open a dialog with a closing-date input (`datetime-local`, local time) and a "No closing date" checkbox. When the job has a future `closes_at`, the input MUST be pre-filled with it; otherwise it starts empty.
-- **FR-003**: Confirming MUST update `hiring_posts` in one write: `status = 'published'` and `closes_at` = the chosen date as an ISO timestamp, or null when "No closing date" is ticked. `published_at` is left unchanged.
+- **FR-003**: Confirming MUST update `hiring_posts` in one write: `status = 'published'` and `closes_at` = the chosen date as an ISO timestamp, or null when "No closing date" is ticked. `published_at` is left unchanged. The update MUST match only while the job's status is still `closed`; if no row is updated (archived or changed meanwhile), the dialog stays open and says so.
 - **FR-004**: Confirm MUST be disabled unless "No closing date" is ticked or the date is later than the current time, so a reopened job is never immediately re-closed by `auto_close_expired_posts()`.
 - **FR-005**: The write MUST go through the browser Supabase client under the existing `hiring_posts` RLS, the same path the "Close" button uses. No migration, backend or API change.
 
