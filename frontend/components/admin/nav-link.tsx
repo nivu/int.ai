@@ -3,6 +3,7 @@
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import type { ReactNode } from "react";
 
 function PendingIndicator() {
   const { pending } = useLinkStatus();
@@ -22,7 +23,15 @@ function PendingIndicator() {
   );
 }
 
-export function NavLink({ href, label }: { href: string; label: string }) {
+export function NavLink({
+  href,
+  label,
+  icon,
+}: {
+  href: string;
+  label: string;
+  icon: ReactNode;
+}) {
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`);
 
@@ -34,7 +43,10 @@ export function NavLink({ href, label }: { href: string; label: string }) {
         active ? "bg-muted text-foreground" : "hover:bg-muted"
       }`}
     >
-      {label}
+      <span className="flex items-center gap-2">
+        {icon}
+        {label}
+      </span>
       <PendingIndicator />
     </Link>
   );
