@@ -2,7 +2,7 @@
 
 **Feature Branch**: `007-sidebar-nav-icons`
 **Created**: 2026-10-20
-**Status**: Draft
+**Status**: Implemented
 **Input**: The admin left menu (`frontend/app/(admin)/layout.tsx`) shows text labels only. Every menu item should have an icon so the menu is quicker to scan.
 
 ## User Scenarios & Testing *(mandatory)*

@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import JobCandidateManagementSection from "@/components/admin/job-candidate-management-section";
 import { ClientAccessCard } from "@/components/admin/client-access-card";
 import { DownloadAllResumesButton } from "@/components/shared/resume-download";
+import { ReopenJobDialog } from "@/components/admin/reopen-job-dialog";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -319,9 +320,12 @@ export default function JobDetailClient({
             </Button>
           )}
           {post.status === "closed" && (
-            <Button variant="outline" onClick={handleArchive} disabled={loading}>
-              Archive
-            </Button>
+            <>
+              <ReopenJobDialog jobId={post.id} closesAt={post.closes_at} />
+              <Button variant="outline" onClick={handleArchive} disabled={loading}>
+                Archive
+              </Button>
+            </>
           )}
         </div>
       </div>
