@@ -52,6 +52,11 @@ export function ReopenJobDialog({
   const canConfirm = noClosingDate || dateIsFuture;
 
   async function handleReopen() {
+    // Re-check at click time: the date may have passed while the dialog was open.
+    if (!noClosingDate && !(new Date(date) > new Date())) {
+      setError("Choose a date in the future.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
