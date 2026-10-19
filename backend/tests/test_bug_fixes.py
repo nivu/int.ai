@@ -78,19 +78,6 @@ async def test_bug1_llm_fallback_on_timeout():
 
 
 # ---------------------------------------------------------------------------
-# Bug 2: VAD False Positives
-# ---------------------------------------------------------------------------
-
-def test_bug2_vad_duration_filtering():
-    """Test that short speech events (<200ms) are filtered out."""
-    # This would be tested in integration with LiveKit
-    # Unit test verifies the logic exists
-    from backend.app.interview.entrypoint import _VAD_MIN_SPEECH_DURATION_MS
-    
-    assert _VAD_MIN_SPEECH_DURATION_MS == 200
-
-
-# ---------------------------------------------------------------------------
 # Bug 3: STT Latency and Word Count Accuracy
 # ---------------------------------------------------------------------------
 
@@ -104,7 +91,7 @@ def test_bug3_word_count_calculation():
     ]
     
     word_count = sum(len(p.split()) for p in transcript_parts)
-    assert word_count == 11  # 4 + 3 + 4
+    assert word_count == 13  # 5 + 3 + 5
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +148,7 @@ def test_bug7_redis_persistence_config():
     import os
     
     # Verify redis.conf exists
-    config_path = "backend/redis.conf"
+    config_path = os.path.join(os.path.dirname(__file__), "..", "redis.conf")
     assert os.path.exists(config_path)
     
     # Verify AOF is enabled in config

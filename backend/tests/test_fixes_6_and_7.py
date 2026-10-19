@@ -4,8 +4,12 @@ Tests for:
   Fix 7 — POST /interview/end-session marks session completed and enqueues evaluation
 """
 
-import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +212,6 @@ class TestEndSessionEndpoint:
         with (
             patch("app.interview.session_manager.get_record") as mock_get,
             patch("app.interview.session_manager.update_record") as mock_update,
-            patch("app.interview.session_manager.celery_app") as mock_celery,
         ):
             from datetime import datetime, timezone
             mock_get.return_value = {
@@ -227,12 +230,16 @@ class TestEndSessionEndpoint:
             assert "duration_seconds" in call_args[0][2]
 
     @pytest.mark.asyncio
-    async def test_session_manager_enqueues_evaluation(self):
-        """end_session() enqueues the evaluate_interview_task Celery task."""
+    async def test_session_manager_does_not_enqueue_evaluation(self):
+        """end_session() must NOT enqueue evaluate_interview_task.
+
+        Evaluation is enqueued by the agent's controller.finish(); enqueuing it
+        here as well would evaluate the interview twice.
+        """
         with (
             patch("app.interview.session_manager.get_record") as mock_get,
             patch("app.interview.session_manager.update_record"),
-            patch("app.interview.session_manager.celery_app") as mock_celery,
+            patch("app.worker.celery_app.send_task") as mock_send_task,
         ):
             from datetime import datetime, timezone
             mock_get.return_value = {
@@ -243,10 +250,7 @@ class TestEndSessionEndpoint:
             from app.interview.session_manager import end_session
             await end_session("sess-2")
 
-            mock_celery.send_task.assert_called_once_with(
-                "evaluate_interview_task",
-                args=["sess-2"],
-            )
+            mock_send_task.assert_not_called()
 
     def test_frontend_endSession_calls_end_session_endpoint(self):
         """
@@ -254,9 +258,9 @@ class TestEndSessionEndpoint:
         now contains the /api/proxy/api/v1/interview/end-session fetch call.
         """
         import re
-        src = open(
-            "/Users/sriramtantri/intai/int.ai/frontend/components/candidate/interview-room.tsx"
-        ).read()
+        src = (
+            _REPO_ROOT / "frontend/components/candidate/interview-room.tsx"
+        ).read_text()
 
         assert "end-session" in src, "endSession() must call the end-session endpoint"
         assert "session_id" in src or "sessionId" in src
@@ -266,9 +270,9 @@ class TestEndSessionEndpoint:
         Verifies (by reading source) that the end-session route is registered
         in backend/app/api/interview.py.
         """
-        src = open(
-            "/Users/sriramtantri/intai/int.ai/backend/app/api/interview.py"
-        ).read()
+        src = (
+            _REPO_ROOT / "backend/app/api/interview.py"
+        ).read_text()
 
         assert 'router.post("/end-session"' in src
         assert "end_session_route" in src
