@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+from fractions import Fraction
 from typing import Any
 
 from openai import OpenAI
@@ -34,6 +36,7 @@ class QuestionGenerator:
         conversation_history: list[dict[str, str]] | None = None,
         custom_questions: list[str] | None = None,
         resume_projects: list[dict] | None = None,
+        max_questions: int = 10,
     ) -> None:
         self.resume_markdown = resume_markdown
         self.jd_text = jd_text
@@ -50,6 +53,11 @@ class QuestionGenerator:
             p for p in (resume_projects or [])
             if isinstance(p, dict) and str(p.get("name", "")).strip()
         ]
+        # Slots left after the custom questions; anchored project questions are
+        # spread across these in proportion to the project share (spec 009).
+        self._open_slots = max(max_questions - len(self._custom_questions_remaining), 0)
+        self._open_slots_used = 0
+        self._anchored_asked = 0
 
     def _llm_json(self, system_prompt: str, user_content: str, temperature: float = 0.7) -> dict:
         client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value())
@@ -105,7 +113,9 @@ class QuestionGenerator:
 
         Priority order:
         1. Recruiter custom questions (asked first, in order)
-        2. Resume-anchored project questions (one per project, in order)
+        2. Resume-anchored project questions, spread through the remaining
+           slots at the project share (1 - foundational_ratio) and capped at
+           that share of those slots
         3. LLM-generated questions (fill remaining slots)
         """
         if self._custom_questions_remaining:
@@ -116,10 +126,13 @@ class QuestionGenerator:
                 "topic": "recruiter question",
             }
 
-        if self._projects_to_probe:
+        if self._anchored_project_due(foundational_ratio):
             project = self._projects_to_probe.pop(0)
             try:
-                return self._generate_anchored_project_question(project)
+                question = self._generate_anchored_project_question(project)
+                self._anchored_asked += 1
+                self._open_slots_used += 1
+                return question
             except Exception:
                 # Generation failed — put the project back and fall through to LLM.
                 self._projects_to_probe.insert(0, project)
@@ -146,6 +159,7 @@ class QuestionGenerator:
 
         try:
             result = self._llm_json(system_prompt, user_content, temperature=0.7)
+            self._open_slots_used += 1
             return {
                 "question_text": result.get("question_text", ""),
                 "question_type": result.get("question_type", "foundational"),
@@ -154,6 +168,20 @@ class QuestionGenerator:
         except Exception:
             logger.exception("Failed to generate next question via OpenAI")
             raise
+
+    def _anchored_project_due(self, foundational_ratio: float) -> bool:
+        """Whether the next open slot should be a resume-anchored project question."""
+        if not self._projects_to_probe:
+            return False
+        # Exact arithmetic: in floats 1 - 0.9 is 0.0999..., which would round
+        # a .5 boundary down.
+        # A NULL template ratio arrives as None; use the column default.
+        ratio = Fraction(str(0.6 if foundational_ratio is None else foundational_ratio))
+        share = min(max(1 - ratio, Fraction(0)), Fraction(1))
+        half = Fraction(1, 2)
+        cap = math.floor(self._open_slots * share + half)
+        due = math.floor((self._open_slots_used + 1) * share + half)
+        return self._anchored_asked < min(cap, due)
 
     def should_follow_up(self, last_answer: str) -> bool:
         """Assess whether the last answer is vague and needs a follow-up probe."""

@@ -120,6 +120,7 @@ class _SessionController:
             job_title=job_title,
             custom_questions=custom_questions,
             resume_projects=resume_projects,
+            max_questions=max_questions,
         )
 
     @property
