@@ -5,14 +5,22 @@ import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { AuthErrorHandler } from "@/components/shared/auth-error-handler";
 import { OrgProvider } from "@/components/admin/org-context";
 import { NavLink } from "@/components/admin/nav-link";
+import {
+  BarChart3,
+  Briefcase,
+  FileText,
+  LayoutDashboard,
+  Settings,
+  Users,
+} from "lucide-react";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/jobs", label: "Jobs" },
-  { href: "/candidates", label: "Candidates" },
-  { href: "/templates", label: "Templates" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/settings", label: "Settings" },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/jobs", label: "Jobs", icon: Briefcase },
+  { href: "/candidates", label: "Candidates", icon: Users },
+  { href: "/templates", label: "Templates", icon: FileText },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default async function AdminLayout({
@@ -56,7 +64,12 @@ export default async function AdminLayout({
         </div>
         <nav className="flex flex-col gap-1">
           {navItems.map((item) => (
-            <NavLink key={item.href} href={item.href} label={item.label} />
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={<item.icon aria-hidden className="h-4 w-4" />}
+            />
           ))}
         </nav>
         <div className="mt-auto pt-4 border-t space-y-2">
