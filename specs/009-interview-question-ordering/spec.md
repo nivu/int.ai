@@ -2,7 +2,7 @@
 
 **Feature Branch**: `009-interview-question-ordering`
 **Created**: 2026-10-20
-**Status**: Draft
+**Status**: Implemented
 **Input**: Resume-anchored project questions (planned in CLAUDE.md as being asked "at the appropriate point in the ratio-controlled question flow") are asked back to back straight after the recruiter's custom questions, one per resume project, ignoring `foundational_ratio` (`backend/app/interview/question_gen.py`). A resume with many projects can fill the whole interview with project questions and leave no foundational ones.
 
 ## User Scenarios & Testing *(mandatory)*
