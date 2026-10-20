@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-reopen-job`
 **Created**: 2026-10-20
-**Status**: Draft
+**Status**: Implemented
 **Input**: A closed job only offers "Archive". Reopening means editing the deadline and switching on "Publish now" (spec 006 assumption), which is not discoverable. If the old `closes_at` is still in the past, `auto_close_expired_posts()` (pg_cron, every 15 minutes, spec 006 FR-002) closes the job again.
 
 ## User Scenarios & Testing *(mandatory)*
